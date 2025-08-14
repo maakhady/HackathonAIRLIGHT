@@ -5,6 +5,7 @@ const AlertService = require('../services/AlertService');
 const AuthService = require('../services/AuthService');
 const SensorData = require('../models/SensorData');
 const { triggerAlert } = require('../middleware/alertMiddleware');
+const WeatherService = require('../services/WeatherService');
 
 const router = express.Router();
 
@@ -715,5 +716,339 @@ router.get('/test-airgradient', async (req, res) => {
     });
   }
 });
+
+
+// GET /sensors/:sensorId/weather - Météo pour un capteur spécifique
+router.get('/:sensorId/weather', async (req, res) => {
+  try {
+    const { sensorId } = req.params;
+    const { forecast = false } = req.query;
+    
+    // Récupérer localisation du capteur
+    const sensorInfo = await SensorData.findOne({ sensorId }).sort({ timestamp: -1 });
+    
+    if (!sensorInfo?.location) {
+      return res.status(404).json({
+        success: false,
+        message: 'Capteur non trouvé ou sans localisation'
+      });
+    }
+    
+    const weatherService = new WeatherService();
+    
+    // Météo actuelle
+    const weatherResult = await weatherService.getCurrentWeather(
+      null,
+      sensorInfo.location.latitude,
+      sensorInfo.location.longitude
+    );
+    
+    if (!weatherResult.success) {
+      return res.status(400).json(weatherResult);
+    }
+    
+    const responseData = {
+      sensorId,
+      location: sensorInfo.location,
+      current_weather: weatherResult.data,
+      air_quality_impact: weatherService.analyzeAirQualityImpact(weatherResult.data)
+    };
+    
+    // Ajouter prévisions si demandées
+    if (forecast === 'true') {
+      const forecastResult = await weatherService.getForecast(
+        null,
+        sensorInfo.location.latitude,
+        sensorInfo.location.longitude,
+        3
+      );
+      
+      if (forecastResult.success) {
+        responseData.forecast = forecastResult.data;
+        
+        // Analyser impact prévisionnel sur qualité air
+        responseData.forecast_air_quality = forecastResult.data.daily.map(day => ({
+          date: day.date,
+          expected_impact: weatherService.predictAQIFromWeather(day),
+          dust_risk: weatherService.assessDustRisk(day),
+          ventilation_conditions: weatherService.assessVentilation(day)
+        }));
+      }
+    }
+    
+    // Récupérer données récentes du capteur pour corrélation
+    const recentData = await SensorData
+      .find({ sensorId })
+      .sort({ timestamp: -1 })
+      .limit(24);
+    
+    if (recentData.length > 0) {
+      // Analyser corrélation météo/qualité air
+      responseData.correlation = analyzeWeatherAirQualityCorrelation(
+        weatherResult.data, 
+        recentData
+      );
+      
+      // Recommandations contextuelles
+      responseData.recommendations = generateWeatherRecommendations(
+        weatherResult.data,
+        responseData.correlation,
+        sensorInfo.location.city
+      );
+    }
+    
+    res.json({
+      success: true,
+      data: responseData,
+      message: `Météo et impact qualité air pour ${sensorId}`
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur météo capteur:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la récupération météo capteur'
+    });
+  }
+});
+
+// 🌤️ GET /sensors/weather/dashboard - Tableau de bord météo tous capteurs
+router.get('/weather/dashboard', async (req, res) => {
+  try {
+    const weatherService = new WeatherService();
+    
+    // Récupérer météo pour toutes les villes
+    const allWeatherData = await weatherService.getWeatherForAllSensorCities();
+    
+    if (!allWeatherData.success) {
+      return res.status(400).json(allWeatherData);
+    }
+    
+    // Enrichir avec données capteurs
+    const enrichedData = [];
+    
+    for (const cityWeather of allWeatherData.data) {
+      if (cityWeather.success) {
+        // Trouver capteurs dans cette ville
+        const citySensors = await SensorData.aggregate([
+          {
+            $match: {
+              'location.city': cityWeather.city,
+              timestamp: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } // 6h
+            }
+          },
+          {
+            $group: {
+              _id: '$sensorId',
+              lastUpdate: { $max: '$timestamp' },
+              avgPM25: { $avg: '$measurements.pm25' },
+              avgAQI: { $avg: '$airQualityIndex' },
+              location: { $first: '$location' }
+            }
+          }
+        ]);
+        
+        enrichedData.push({
+          city: cityWeather.city,
+          weather: cityWeather.data,
+          air_quality_impact: weatherService.analyzeAirQualityImpact(cityWeather.data),
+          sensors: citySensors,
+          correlation_summary: analyzeCityWeatherCorrelation(cityWeather.data, citySensors)
+        });
+      }
+    }
+    
+    // Calculer alertes météo globales
+    const globalAlerts = await Alert.find({
+      alertType: { $in: ['weather_air_quality', 'weather_forecast_warning'] },
+      isActive: true,
+      createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+    }).sort({ createdAt: -1 });
+    
+    const dashboard = {
+      timestamp: new Date(),
+      cities_data: enrichedData,
+      global_weather_alerts: globalAlerts,
+      summary: {
+        cities_monitored: enrichedData.length,
+        sensors_active: enrichedData.reduce((sum, city) => sum + city.sensors.length, 0),
+        weather_alerts_active: globalAlerts.length,
+        worst_air_quality_impact: getWorstAirQualityImpact(enrichedData)
+      }
+    };
+    
+    res.json({
+      success: true,
+      data: dashboard,
+      message: 'Tableau de bord météo/capteurs mis à jour'
+    });
+    
+  } catch (error) {
+    console.error('❌ Erreur dashboard météo capteurs:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la génération du dashboard'
+    });
+  }
+});
+
+// 🌤️ FONCTIONS UTILITAIRES À AJOUTER avant module.exports = router;
+
+function analyzeWeatherAirQualityCorrelation(weather, sensorData) {
+  if (!sensorData || sensorData.length === 0) {
+    return { 
+      correlation: 'insufficient_data',
+      confidence: 0,
+      analysis: 'Pas assez de données pour analyser la corrélation'
+    };
+  }
+
+  const windSpeed = weather.current.wind.speed_kmh;
+  const humidity = weather.current.humidity;
+  const pressure = weather.current.pressure;
+  
+  // Calculer moyennes récentes PM2.5
+  const avgPM25 = sensorData.reduce((sum, data) => sum + (data.measurements.pm25 || 0), 0) / sensorData.length;
+  const recent6h = sensorData.slice(0, 6);
+  const avgPM25Recent = recent6h.reduce((sum, data) => sum + (data.measurements.pm25 || 0), 0) / recent6h.length;
+  
+  let correlation = {
+    wind_dispersion: 'neutral',
+    humidity_effect: 'neutral', 
+    pressure_stability: 'neutral',
+    trend: avgPM25Recent > avgPM25 ? 'increasing' : 'decreasing',
+    confidence: 0.5
+  };
+  
+  // Analyse vent/dispersion
+  if (windSpeed > 15) {
+    correlation.wind_dispersion = 'beneficial';
+    correlation.confidence += 0.2;
+  } else if (windSpeed < 5) {
+    correlation.wind_dispersion = 'detrimental';
+    correlation.confidence += 0.2;
+  }
+  
+  // Analyse humidité
+  if (humidity > 80) {
+    correlation.humidity_effect = 'detrimental';
+    correlation.confidence += 0.1;
+  } else if (humidity < 40) {
+    correlation.humidity_effect = 'dust_risk';
+    correlation.confidence += 0.1;
+  }
+  
+  // Analyse pression
+  if (pressure < 1010) {
+    correlation.pressure_stability = 'inversion_risk';
+    correlation.confidence += 0.1;
+  }
+  
+  return {
+    ...correlation,
+    pm25_average_24h: Math.round(avgPM25 * 10) / 10,
+    pm25_recent_6h: Math.round(avgPM25Recent * 10) / 10,
+    weather_conditions: {
+      wind_speed_kmh: windSpeed,
+      humidity_percent: humidity,
+      pressure_hpa: pressure
+    }
+  };
+}
+
+function generateWeatherRecommendations(weatherData, correlation, city) {
+  const recommendations = [];
+  const wind = weatherData.current.wind.speed_kmh;
+  const humidity = weatherData.current.humidity;
+  
+  // Recommandations selon vent
+  if (wind > 20) {
+    recommendations.push({
+      type: 'ventilation',
+      priority: 'high',
+      message: `💨 Vent fort à ${city} - Excellente opportunité d'aérer`,
+      action: 'Ouvrez largement les fenêtres pendant 30-60 minutes'
+    });
+  } else if (wind < 5) {
+    recommendations.push({
+      type: 'precaution',
+      priority: 'medium',
+      message: `😷 Vent faible à ${city} - Risque de stagnation`,
+      action: 'Surveillez la qualité de l\'air, limitez sorties prolongées'
+    });
+  }
+  
+  // Recommandations selon humidité
+  if (humidity > 85) {
+    recommendations.push({
+      type: 'health',
+      priority: 'medium',
+      message: `💧 Humidité très élevée à ${city}`,
+      action: 'Les particules restent en suspension, surveillez l\'AQI'
+    });
+  } else if (humidity < 30) {
+    recommendations.push({
+      type: 'dust',
+      priority: 'medium',
+      message: `🏜️ Air très sec à ${city}`,
+      action: 'Risque accru de poussière, portez un masque si vent fort'
+    });
+  }
+  
+  // Recommandations selon corrélation
+  if (correlation.trend === 'increasing') {
+    recommendations.push({
+      type: 'trend',
+      priority: 'medium',
+      message: 'Tendance pollution en hausse',
+      action: 'Surveillez l\'évolution dans les prochaines heures'
+    });
+  }
+  
+  return recommendations;
+}
+
+function analyzeCityWeatherCorrelation(weatherData, sensors) {
+  if (!sensors || sensors.length === 0) {
+    return { correlation: 'no_sensors', confidence: 0 };
+  }
+  
+  const wind = weatherData.current.wind.speed_kmh;
+  const avgAQI = sensors.reduce((sum, s) => sum + (s.avgAQI || 0), 0) / sensors.length;
+  
+  let impact = 'neutral';
+  let confidence = 0.5;
+  
+  if (wind > 15 && avgAQI < 50) {
+    impact = 'beneficial';
+    confidence = 0.8;
+  } else if (wind < 5 && avgAQI > 100) {
+    impact = 'detrimental';
+    confidence = 0.8;
+  }
+  
+  return {
+    correlation: impact,
+    confidence: confidence,
+    avg_aqi: Math.round(avgAQI),
+    sensors_count: sensors.length
+  };
+}
+
+function getWorstAirQualityImpact(enrichedData) {
+  let worst = 'neutral';
+  
+  for (const cityData of enrichedData) {
+    const impact = cityData.air_quality_impact.overall;
+    if (impact === 'detrimental') {
+      worst = 'detrimental';
+      break;
+    } else if (impact === 'beneficial' && worst === 'neutral') {
+      worst = 'beneficial';
+    }
+  }
+  
+  return worst;
+}
 
 module.exports = router;
