@@ -1,4 +1,4 @@
-# ai_service/app_improved.py - Service IA amélioré avec modèles avancés
+# ai_service/app_improved.py - Service IA avec correction complète sérialisation JSON
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import joblib
 import os
 import logging
+import json
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
@@ -32,9 +33,29 @@ CORS(app)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# 🔧 CORRECTION PRINCIPALE: Fonction utilitaire pour convertir NumPy types vers Python natifs
+def convert_numpy_types(obj):
+    """Convertir récursivement les types NumPy en types Python natifs pour la sérialisation JSON"""
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, dict):
+        return {key: convert_numpy_types(value) for key, value in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_numpy_types(item) for item in obj]
+    elif pd.isna(obj):
+        return None
+    else:
+        return obj
+
 class AirQualityPredictor:
     def __init__(self):
-        self.models = {}  # Dictionnaire pour stocker plusieurs modèles
+        self.models = {}
         self.scaler = None
         self.feature_scaler = None
         self.target_scaler = None
@@ -42,9 +63,9 @@ class AirQualityPredictor:
             'pm25', 'pm10', 'co2', 'temperature', 'humidity', 
             'hour', 'dayOfWeek', 'month', 'aqi'
         ]
-        self.model_version = "2.0"
-        self.min_data_points = 48  # Augmenté pour plus de fiabilité
-        self.sequence_length = 24  # Pour LSTM
+        self.model_version = "2.1"  # Version mise à jour
+        self.min_data_points = 48
+        self.sequence_length = 24
         self.ensemble_weights = {
             'rf': 0.4,
             'gb': 0.3,
@@ -88,15 +109,15 @@ class AirQualityPredictor:
             features_df['pm25_std_6'] = df['pm25'].rolling(window=6, min_periods=1).std().fillna(0)
             features_df['pm25_std_24'] = df['pm25'].rolling(window=24, min_periods=1).std().fillna(0)
             
-            # Ratio PM2.5/PM10 (indicateur de la source de pollution)
+            # Ratio PM2.5/PM10
             features_df['pm_ratio'] = (df['pm25'] / (df['pm10'] + 1)).fillna(0)
             
-            # Features de différence et taux de changement
+            # Features de différence
             features_df['pm25_diff_1'] = df['pm25'].diff(1).fillna(0)
             features_df['pm25_diff_6'] = df['pm25'].diff(6).fillna(0)
             features_df['pm25_diff_24'] = df['pm25'].diff(24).fillna(0)
             
-            # Taux de changement en pourcentage
+            # Taux de changement
             features_df['pm25_pct_change_1'] = df['pm25'].pct_change(1).fillna(0)
             features_df['pm25_pct_change_6'] = df['pm25'].pct_change(6).fillna(0)
             
@@ -107,16 +128,11 @@ class AirQualityPredictor:
             
             # Features météo avancées
             if 'temperature' in df.columns and 'humidity' in df.columns:
-                # Indice de confort thermique
                 features_df['heat_index'] = self.calculate_heat_index(
                     df['temperature'], 
                     df['humidity']
                 )
-                
-                # Interaction température-humidité
                 features_df['temp_humidity_interaction'] = df['temperature'] * df['humidity'] / 100
-                
-                # Catégories météo
                 features_df['is_hot'] = (df['temperature'] > 30).astype(int)
                 features_df['is_humid'] = (df['humidity'] > 70).astype(int)
                 features_df['is_dry'] = (df['humidity'] < 30).astype(int)
@@ -134,11 +150,11 @@ class AirQualityPredictor:
             features_df['pm25_zscore'] = (df['pm25'] - pm25_mean) / (pm25_std + 1e-6)
             features_df['is_anomaly'] = (np.abs(features_df['pm25_zscore']) > 2).astype(int)
             
-            # Features saisonnières avancées
+            # Features saisonnières
             features_df['is_dry_season'] = ((df['month'] >= 11) | (df['month'] <= 3)).astype(int)
             features_df['is_rainy_season'] = ((df['month'] >= 6) & (df['month'] <= 9)).astype(int)
             
-            # Quantiles et percentiles
+            # Quantiles
             features_df['pm25_quantile_25'] = df['pm25'].rolling(window=24, min_periods=1).quantile(0.25)
             features_df['pm25_quantile_75'] = df['pm25'].rolling(window=24, min_periods=1).quantile(0.75)
             features_df['pm25_iqr'] = features_df['pm25_quantile_75'] - features_df['pm25_quantile_25']
@@ -151,7 +167,6 @@ class AirQualityPredictor:
     
     def calculate_heat_index(self, temp, humidity):
         """Calculer l'indice de chaleur"""
-        # Formule simplifiée de l'indice de chaleur
         hi = -8.78469 + 1.61139 * temp + 2.33854 * humidity
         hi -= 0.14611 * temp * humidity
         hi -= 0.01230 * temp**2
@@ -159,7 +174,7 @@ class AirQualityPredictor:
         hi += 0.00221 * temp**2 * humidity
         hi += 0.00072 * temp * humidity**2
         hi -= 0.00000 * temp**2 * humidity**2
-        return np.where(temp < 27, temp, hi)  # Appliquer seulement si temp > 27°C
+        return np.where(temp < 27, temp, hi)
     
     def prepare_lstm_sequences(self, features, targets):
         """Préparer les séquences pour LSTM"""
@@ -257,27 +272,31 @@ class AirQualityPredictor:
             
             # 3. LSTM (si disponible)
             if LSTM_AVAILABLE and len(features_scaled) > self.sequence_length * 2:
-                X_seq, y_seq = self.prepare_lstm_sequences(features_scaled, targets_scaled)
-                
-                if len(X_seq) > 0:
-                    self.models['lstm'] = self.build_lstm_model((self.sequence_length, features_scaled.shape[1]))
+                try:
+                    X_seq, y_seq = self.prepare_lstm_sequences(features_scaled, targets_scaled)
                     
-                    # Callbacks
-                    early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
-                    
-                    # Entraînement
-                    history = self.models['lstm'].fit(
-                        X_seq, y_seq,
-                        epochs=50,
-                        batch_size=32,
-                        validation_split=0.2,
-                        callbacks=[early_stop],
-                        verbose=0
-                    )
-                    
-                    # Score de validation
-                    val_loss = min(history.history['val_loss'])
-                    scores['lstm'] = [1 / (1 + val_loss)]  # Conversion en pseudo-R²
+                    if len(X_seq) > 0:
+                        self.models['lstm'] = self.build_lstm_model((self.sequence_length, features_scaled.shape[1]))
+                        
+                        # Callbacks
+                        early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+                        
+                        # Entraînement
+                        history = self.models['lstm'].fit(
+                            X_seq, y_seq,
+                            epochs=50,
+                            batch_size=32,
+                            validation_split=0.2,
+                            callbacks=[early_stop],
+                            verbose=0
+                        )
+                        
+                        # Score de validation
+                        val_loss = min(history.history['val_loss'])
+                        scores['lstm'] = [1 / (1 + val_loss)]
+                except Exception as lstm_error:
+                    logger.warning(f"LSTM training failed: {lstm_error}")
+                    scores['lstm'] = []
             
             # Entraînement final sur toutes les données
             self.models['rf'].fit(features_scaled, targets_scaled)
@@ -286,7 +305,7 @@ class AirQualityPredictor:
             # Calcul des performances moyennes
             avg_scores = {k: np.mean(v) if v else 0 for k, v in scores.items()}
             
-            # Ajuster les poids de l'ensemble en fonction des performances
+            # Ajuster les poids de l'ensemble
             if use_ensemble:
                 total_score = sum(avg_scores.values())
                 if total_score > 0:
@@ -302,7 +321,7 @@ class AirQualityPredictor:
             rmse = np.sqrt(mean_squared_error(targets, final_predictions_original))
             r2 = r2_score(targets, final_predictions_original)
             
-            # Analyse des features importantes (Random Forest)
+            # Analyse des features importantes
             feature_importance = pd.DataFrame({
                 'feature': features_df.columns,
                 'importance': self.models['rf'].feature_importances_
@@ -312,7 +331,8 @@ class AirQualityPredictor:
             logger.info(f"Poids ensemble: {self.ensemble_weights}")
             logger.info(f"Top features: {feature_importance['feature'].tolist()[:5]}")
             
-            return True, {
+            # 🔧 CORRECTION: Convertir tous les types NumPy
+            return True, convert_numpy_types({
                 'mae': mae,
                 'rmse': rmse,
                 'r2_score': r2,
@@ -320,7 +340,7 @@ class AirQualityPredictor:
                 'ensemble_weights': self.ensemble_weights,
                 'top_features': feature_importance.to_dict('records'),
                 'model_scores': avg_scores
-            }
+            })
             
         except Exception as e:
             logger.error(f"Erreur entraînement: {e}")
@@ -342,12 +362,14 @@ class AirQualityPredictor:
         
         # LSTM
         if 'lstm' in self.models and self.models['lstm'] is not None and LSTM_AVAILABLE:
-            # Pour LSTM, on a besoin de séquences
-            if len(features_scaled) >= self.sequence_length:
-                lstm_input = features_scaled[-self.sequence_length:].reshape(1, self.sequence_length, -1)
-                lstm_pred = self.models['lstm'].predict(lstm_input, verbose=0)[0, 0]
-                predictions[-1] = predictions[-1] * (1 - self.ensemble_weights.get('lstm', 0.34))
-                predictions[-1] += lstm_pred * self.ensemble_weights.get('lstm', 0.34)
+            try:
+                if len(features_scaled) >= self.sequence_length:
+                    lstm_input = features_scaled[-self.sequence_length:].reshape(1, self.sequence_length, -1)
+                    lstm_pred = self.models['lstm'].predict(lstm_input, verbose=0)[0, 0]
+                    predictions[-1] = predictions[-1] * (1 - self.ensemble_weights.get('lstm', 0.34))
+                    predictions[-1] += lstm_pred * self.ensemble_weights.get('lstm', 0.34)
+            except Exception as e:
+                logger.warning(f"LSTM prediction failed: {e}")
         
         return predictions
     
@@ -375,7 +397,6 @@ class AirQualityPredictor:
                 
                 # Random Forest avec intervalles de confiance
                 if 'rf' in self.models:
-                    # Prédictions de tous les arbres
                     tree_predictions = []
                     for tree in self.models['rf'].estimators_:
                         tree_pred = tree.predict(features_scaled)[0]
@@ -400,7 +421,7 @@ class AirQualityPredictor:
                 pred_pm25 = self.target_scaler.inverse_transform([[ensemble_pred]])[0, 0]
                 pred_pm25 = max(0, pred_pm25)
                 
-                # Intervalles de confiance (basés sur Random Forest)
+                # Intervalles de confiance
                 if 'rf' in model_predictions:
                     lower_bound = self.target_scaler.inverse_transform(
                         [[model_predictions['rf']['lower']]]
@@ -417,12 +438,13 @@ class AirQualityPredictor:
                 # Calculer l'AQI prédit
                 pred_aqi = self.calculate_aqi(pred_pm25)
                 
-                # Score de confiance basé sur l'incertitude
+                # Score de confiance
                 confidence = 1 / (1 + uncertainty)
                 confidence = min(0.95, max(0.1, confidence))
                 
                 # Détection de conditions extrêmes
-                is_extreme = pred_pm25 > np.percentile([d['pm25'] for d in data], 95)
+                recent_pm25_values = [d['pm25'] for d in data]
+                is_extreme = pred_pm25 > np.percentile(recent_pm25_values, 95)
                 
                 # Timestamp de prédiction
                 base_time = datetime.fromisoformat(data[-1]['timestamp'].replace('Z', '+00:00'))
@@ -432,31 +454,32 @@ class AirQualityPredictor:
                 feature_values = last_features.iloc[0]
                 contributing_factors = self.get_contributing_factors(feature_values, pred_pm25)
                 
-                predictions.append({
-                    'hour_ahead': hour,
-                    'predicted_pm25': round(pred_pm25, 2),
-                    'confidence_interval': [round(ci, 2) for ci in confidence_interval],
-                    'predicted_aqi': round(pred_aqi, 1),
-                    'confidence': round(confidence, 3),
-                    'uncertainty': round(uncertainty, 3),
+                # 🔧 CORRECTION CRITIQUE: Conversion explicite de TOUS les types NumPy
+                prediction_dict = {
+                    'hour_ahead': int(hour),
+                    'predicted_pm25': float(round(pred_pm25, 2)),
+                    'confidence_interval': [float(round(ci, 2)) for ci in confidence_interval],
+                    'predicted_aqi': float(round(pred_aqi, 1)),
+                    'confidence': float(round(confidence, 3)),
+                    'uncertainty': float(round(uncertainty, 3)),
                     'timestamp': pred_time.isoformat(),
-                    'is_extreme': is_extreme,
-                    'contributing_factors': contributing_factors,
-                    'model_contributions': {
+                    'is_extreme': bool(is_extreme),  # 🔧 CONVERSION EXPLICITE BOOL
+                    'contributing_factors': convert_numpy_types(contributing_factors),
+                    'model_contributions': convert_numpy_types({
                         k: round(v.get('mean', 0), 2) 
                         for k, v in model_predictions.items()
-                    },
+                    }),
                     'modelVersion': self.model_version
-                })
+                }
+                
+                predictions.append(prediction_dict)
                 
                 # Mettre à jour les features pour la prochaine prédiction
-                # Simuler l'évolution des features
                 new_row = last_features.copy()
                 new_row['pm25'] = pred_pm25
                 new_row['aqi'] = pred_aqi
                 new_row['hour'] = (new_row['hour'].iloc[0] + 1) % 24
                 
-                # Mettre à jour les features temporelles
                 if new_row['hour'].iloc[0] == 0:
                     new_row['dayOfWeek'] = (new_row['dayOfWeek'].iloc[0] + 1) % 7
                 
@@ -464,8 +487,10 @@ class AirQualityPredictor:
                 for col in prediction_features.columns:
                     if 'ma_' in col:
                         window = int(col.split('_')[-1])
-                        recent_values = list(prediction_features[col.split('_ma_')[0]][-window+1:]) + [pred_pm25]
-                        new_row[col] = np.mean(recent_values[-window:])
+                        base_col = col.split('_ma_')[0]
+                        if base_col in prediction_features.columns:
+                            recent_values = list(prediction_features[base_col][-window+1:]) + [pred_pm25 if base_col == 'pm25' else new_row[base_col].iloc[0]]
+                            new_row[col] = np.mean(recent_values[-window:])
                 
                 prediction_features = pd.concat([prediction_features, new_row], ignore_index=True)
             
@@ -492,7 +517,7 @@ class AirQualityPredictor:
                 aqi = ((aqi_high - aqi_low) / (bp_high - bp_low)) * (pm25 - bp_low) + aqi_low
                 return aqi
         
-        return 500  # Max AQI
+        return 500
     
     def get_contributing_factors(self, features, prediction):
         """Identifier les facteurs contributifs principaux"""
@@ -539,7 +564,7 @@ class AirQualityPredictor:
                 'value': 'Active'
             })
         
-        return factors[:3]  # Top 3 facteurs
+        return factors[:3]
 
 # Instance globale du prédicteur
 predictor = AirQualityPredictor()
@@ -570,7 +595,7 @@ def predict():
         
         sensor_id = data.get('sensorId', 'unknown')
         training_data = data['data']
-        hours_ahead = min(data.get('hours_ahead', 24), 72)  # Max 72h
+        hours_ahead = min(data.get('hours_ahead', 24), 72)
         use_ensemble = data.get('use_ensemble', True)
         
         if len(training_data) < predictor.min_data_points:
@@ -599,25 +624,29 @@ def predict():
         
         # Analyse statistique des prédictions
         pred_values = [p['predicted_pm25'] for p in predictions]
-        stats = {
-            'mean': round(np.mean(pred_values), 2),
-            'median': round(np.median(pred_values), 2),
-            'std': round(np.std(pred_values), 2),
-            'min': round(np.min(pred_values), 2),
-            'max': round(np.max(pred_values), 2),
-            'trend': 'increasing' if pred_values[-1] > pred_values[0] else 'decreasing'
-        }
+        stats = convert_numpy_types({
+            'mean': np.mean(pred_values),
+            'median': np.median(pred_values),
+            'std': np.std(pred_values),
+            'min': np.min(pred_values),
+            'max': np.max(pred_values),
+            'trend': 'increasing' if pred_values[-1] > pred_values[0] else 'decreasing',
+            'mean_confidence': np.mean([p['confidence'] for p in predictions])
+        })
         
         logger.info(f"Prédictions générées pour {sensor_id}: {len(predictions)} heures")
         
-        return jsonify({
+        # 🔧 CORRECTION: S'assurer que toute la réponse est sérialisable
+        response_data = convert_numpy_types({
             'success': True,
             'sensor_id': sensor_id,
-            'predictions': predictions,
+            'predictions': predictions,  # Déjà converti dans predict()
             'statistics': stats,
-            'model_performance': train_result,
+            'model_performance': train_result,  # Déjà converti dans train_model()
             'timestamp': datetime.now().isoformat()
         })
+        
+        return jsonify(response_data)
         
     except Exception as e:
         logger.error(f"Erreur endpoint predict: {e}")
@@ -629,7 +658,7 @@ def predict():
 @app.route('/model/info', methods=['GET'])
 def model_info():
     """Informations sur les modèles actuels"""
-    return jsonify({
+    info_data = {
         'models': {
             'random_forest': {
                 'type': 'RandomForestRegressor',
@@ -652,7 +681,9 @@ def model_info():
         'version': predictor.model_version,
         'features_count': len(predictor.feature_columns),
         'min_data_points': predictor.min_data_points
-    })
+    }
+    
+    return jsonify(convert_numpy_types(info_data))
 
 @app.route('/model/retrain', methods=['POST'])
 def retrain_model():
@@ -669,10 +700,12 @@ def retrain_model():
         use_ensemble = data.get('use_ensemble', True)
         train_success, train_result = predictor.train_model(data['data'], use_ensemble)
         
-        return jsonify({
+        response_data = {
             'success': train_success,
             'result': train_result if train_success else {'error': train_result}
-        })
+        }
+        
+        return jsonify(convert_numpy_types(response_data))
         
     except Exception as e:
         logger.error(f"Erreur réentraînement: {e}")
@@ -734,29 +767,31 @@ def detect_anomalies():
             
             anomaly_data.append({
                 'timestamp': row['timestamp'].isoformat(),
-                'pm25': row['pm25'],
-                'pm10': row['pm10'],
-                'co2': row['co2'],
-                'aqi': row['aqi'],
-                'anomaly_score': round(float(anomaly_scores[idx]), 3),
+                'pm25': float(row['pm25']),
+                'pm10': float(row['pm10']),
+                'co2': float(row['co2']),
+                'aqi': float(row['aqi']),
+                'anomaly_score': float(round(anomaly_scores[idx], 3)),
                 'anomaly_types': anomaly_type,
                 'severity': 'high' if anomaly_scores[idx] < -0.5 else 'medium'
             })
         
         # Statistiques
-        stats = {
+        stats = convert_numpy_types({
             'total_records': len(df),
             'anomalies_detected': len(anomaly_indices),
-            'anomaly_rate': round(len(anomaly_indices) / len(df) * 100, 2),
-            'avg_anomaly_score': round(float(np.mean(anomaly_scores[anomaly_indices])), 3) if len(anomaly_indices) > 0 else 0
-        }
+            'anomaly_rate': len(anomaly_indices) / len(df) * 100,
+            'avg_anomaly_score': np.mean(anomaly_scores[anomaly_indices]) if len(anomaly_indices) > 0 else 0
+        })
         
-        return jsonify({
+        response_data = {
             'success': True,
             'anomalies': anomaly_data,
             'statistics': stats,
             'timestamp': datetime.now().isoformat()
-        })
+        }
+        
+        return jsonify(convert_numpy_types(response_data))
         
     except Exception as e:
         logger.error(f"Erreur détection anomalies: {e}")
@@ -795,8 +830,8 @@ def analyze_patterns():
             'worst_days': weekly_patterns['mean'].nlargest(2).index.tolist(),
             'best_days': weekly_patterns['mean'].nsmallest(2).index.tolist(),
             'weekend_vs_weekday': {
-                'weekend_avg': df[df['dayOfWeek'].isin([5, 6])]['pm25'].mean(),
-                'weekday_avg': df[~df['dayOfWeek'].isin([5, 6])]['pm25'].mean()
+                'weekend_avg': float(df[df['dayOfWeek'].isin([5, 6])]['pm25'].mean()),
+                'weekday_avg': float(df[~df['dayOfWeek'].isin([5, 6])]['pm25'].mean())
             }
         }
         
@@ -815,48 +850,53 @@ def analyze_patterns():
         
         trend_analysis = {
             'trend_direction': 'increasing' if slope > 0 else 'decreasing',
-            'trend_strength': abs(r_value),
-            'significant': p_value < 0.05,
-            'daily_change_rate': slope * 24  # Changement par jour
+            'trend_strength': float(abs(r_value)),
+            'significant': bool(p_value < 0.05),
+            'daily_change_rate': float(slope * 24)  # Changement par jour
         }
         
         # Cycles et saisonnalité (analyse FFT simplifiée)
-        from scipy.fft import fft, fftfreq
+        try:
+            from scipy.fft import fft, fftfreq
+            
+            # Enlever la tendance
+            detrended = df['pm25'] - (slope * x + intercept)
+            
+            # FFT
+            N = len(detrended)
+            yf = fft(detrended.values)
+            xf = fftfreq(N, 1)[:N//2]
+            
+            # Trouver les fréquences dominantes
+            power = 2.0/N * np.abs(yf[:N//2])
+            dominant_freq_idx = np.argsort(power)[-5:]  # Top 5 fréquences
+            
+            cycles = []
+            for idx in dominant_freq_idx:
+                if xf[idx] > 0:  # Éviter division par zéro
+                    period = 1/xf[idx]
+                    if period < len(df):  # Périodes raisonnables
+                        cycles.append({
+                            'period_hours': float(round(period, 1)),
+                            'strength': float(round(power[idx], 3))
+                        })
+        except ImportError:
+            cycles = []
         
-        # Enlever la tendance
-        detrended = df['pm25'] - (slope * x + intercept)
-        
-        # FFT
-        N = len(detrended)
-        yf = fft(detrended.values)
-        xf = fftfreq(N, 1)[:N//2]
-        
-        # Trouver les fréquences dominantes
-        power = 2.0/N * np.abs(yf[:N//2])
-        dominant_freq_idx = np.argsort(power)[-5:]  # Top 5 fréquences
-        
-        cycles = []
-        for idx in dominant_freq_idx:
-            if xf[idx] > 0:  # Éviter division par zéro
-                period = 1/xf[idx]
-                if period < len(df):  # Périodes raisonnables
-                    cycles.append({
-                        'period_hours': round(period, 1),
-                        'strength': round(float(power[idx]), 3)
-                    })
-        
-        return jsonify({
+        response_data = {
             'success': True,
             'patterns': {
-                'daily': daily_pattern,
-                'weekly': weekly_pattern,
-                'correlations': {k: round(v, 3) if not pd.isna(v) else None for k, v in correlations.items()},
-                'trend': trend_analysis,
-                'cycles': sorted(cycles, key=lambda x: x['strength'], reverse=True)[:3]
+                'daily': convert_numpy_types(daily_pattern),
+                'weekly': convert_numpy_types(weekly_pattern),
+                'correlations': {k: float(round(v, 3)) if not pd.isna(v) else None for k, v in correlations.items()},
+                'trend': convert_numpy_types(trend_analysis),
+                'cycles': sorted(cycles, key=lambda x: x['strength'], reverse=True)[:3] if cycles else []
             },
             'recommendations': generate_recommendations(daily_pattern, weekly_pattern, correlations),
             'timestamp': datetime.now().isoformat()
-        })
+        }
+        
+        return jsonify(convert_numpy_types(response_data))
         
     except Exception as e:
         logger.error(f"Erreur analyse patterns: {e}")
@@ -928,54 +968,56 @@ def export_report():
             'period': {
                 'start': df['timestamp'].min().isoformat(),
                 'end': df['timestamp'].max().isoformat(),
-                'duration_days': (df['timestamp'].max() - df['timestamp'].min()).days
+                'duration_days': int((df['timestamp'].max() - df['timestamp'].min()).days)
             },
             'pm25': {
-                'mean': round(df['pm25'].mean(), 2),
-                'median': round(df['pm25'].median(), 2),
-                'std': round(df['pm25'].std(), 2),
-                'min': round(df['pm25'].min(), 2),
-                'max': round(df['pm25'].max(), 2),
-                'p25': round(df['pm25'].quantile(0.25), 2),
-                'p75': round(df['pm25'].quantile(0.75), 2),
-                'p95': round(df['pm25'].quantile(0.95), 2)
+                'mean': float(round(df['pm25'].mean(), 2)),
+                'median': float(round(df['pm25'].median(), 2)),
+                'std': float(round(df['pm25'].std(), 2)),
+                'min': float(round(df['pm25'].min(), 2)),
+                'max': float(round(df['pm25'].max(), 2)),
+                'p25': float(round(df['pm25'].quantile(0.25), 2)),
+                'p75': float(round(df['pm25'].quantile(0.75), 2)),
+                'p95': float(round(df['pm25'].quantile(0.95), 2))
             },
             'aqi': {
-                'mean': round(df['aqi'].mean(), 1),
-                'good_days': len(df[df['aqi'] <= 50]),
-                'moderate_days': len(df[(df['aqi'] > 50) & (df['aqi'] <= 100)]),
-                'unhealthy_days': len(df[df['aqi'] > 100])
+                'mean': float(round(df['aqi'].mean(), 1)),
+                'good_days': int(len(df[df['aqi'] <= 50])),
+                'moderate_days': int(len(df[(df['aqi'] > 50) & (df['aqi'] <= 100)])),
+                'unhealthy_days': int(len(df[df['aqi'] > 100]))
             },
             'data_quality': {
-                'total_records': len(df),
-                'missing_values': df.isnull().sum().to_dict(),
-                'completeness': round((1 - df.isnull().sum().sum() / (len(df) * len(df.columns))) * 100, 2)
+                'total_records': int(len(df)),
+                'missing_values': convert_numpy_types(df.isnull().sum().to_dict()),
+                'completeness': float(round((1 - df.isnull().sum().sum() / (len(df) * len(df.columns))) * 100, 2))
             }
         }
         
         # Tendances mensuelles
-        monthly_trends = df.groupby(df['timestamp'].dt.to_period('M')).agg({
-            'pm25': ['mean', 'std', 'min', 'max'],
-            'aqi': 'mean'
-        }).round(2)
+        try:
+            monthly_trends = df.groupby(df['timestamp'].dt.to_period('M')).agg({
+                'pm25': ['mean', 'std', 'min', 'max'],
+                'aqi': 'mean'
+            }).round(2)
+            monthly_trends_dict = convert_numpy_types(monthly_trends.to_dict()) if not monthly_trends.empty else {}
+        except Exception:
+            monthly_trends_dict = {}
         
         # Générer le rapport
         report = {
+            'success': True,
             'sensor_id': sensor_id,
             'generated_at': datetime.now().isoformat(),
             'statistics': stats,
-            'monthly_trends': monthly_trends.to_dict() if not monthly_trends.empty else {},
+            'monthly_trends': monthly_trends_dict,
             'data_summary': {
-                'total_measurements': len(df),
+                'total_measurements': int(len(df)),
                 'period_covered': f"{stats['period']['duration_days']} jours",
                 'avg_air_quality': 'Good' if stats['aqi']['mean'] <= 50 else 'Moderate' if stats['aqi']['mean'] <= 100 else 'Unhealthy'
             }
         }
         
-        return jsonify({
-            'success': True,
-            'report': report
-        })
+        return jsonify(convert_numpy_types(report))
         
     except Exception as e:
         logger.error(f"Erreur génération rapport: {e}")
