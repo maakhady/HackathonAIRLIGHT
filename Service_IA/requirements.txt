@@ -1,0 +1,30 @@
+# requirements.txt - Dépendances pour le service IA Flask (Python 3.12 compatible)
+Flask>=3.1.1
+Flask-CORS>=6.0.1
+pandas>=2.3.1
+numpy>=2.3.2
+scikit-learn>=1.7.1
+joblib>=1.5.1
+python-dateutil>=2.9.0
+pytz>=2025.2
+
+# Dépendances automatiques (installées avec les packages ci-dessus)
+scipy>=1.16.1
+threadpoolctl>=3.6.0
+blinker>=1.9.0
+click>=8.2.1
+itsdangerous>=2.2.0
+jinja2>=3.1.6
+markupsafe>=3.0.2
+werkzeug>=3.1.3
+tzdata>=2025.2
+six>=1.17.0
+
+# Optionnelles pour des fonctionnalités avancées
+# tensorflow>=2.15.0  # Pour des modèles de deep learning
+# torch>=2.1.0        # Alternative à TensorFlow
+# xgboost>=2.0.2      # Pour des modèles de gradient boosting
+# lightgbm>=4.1.0     # Alternative à XGBoost
+# plotly>=5.17.0      # Pour la visualisation
+# matplotlib>=3.8.2   # Pour les graphiques
+# seaborn>=0.13.0     # Pour les visualisations statistiques
