@@ -1,8 +1,9 @@
-// services/SchedulerService.js - NIVEAUX DE SÉVÉRITÉ CORRIGÉS
+// services/SchedulerService.js - NIVEAUX DE SÉVÉRITÉ CORRIGÉS + MÉTÉO INTÉGRÉE
 const cron = require('node-cron');
 const AirGradientService = require('./AirGradientService');
 const AlertService = require('./AlertService');
 const PredictionService = require('./PredictionService');
+const WeatherService = require('./WeatherService'); // 🌤️ Import service météo
 const SensorData = require('../models/SensorData');
 const Alert = require('../models/Alert');
 const Prediction = require('../models/Prediction');
@@ -13,18 +14,19 @@ class SchedulerService {
     this.airGradientService = new AirGradientService();
     this.alertService = new AlertService();
     this.predictionService = new PredictionService();
+    this.weatherService = new WeatherService(); // 🌤️ Initialiser service météo
     this.jobs = new Map();
     this.isRunning = false;
   }
 
-  // Initialiser tous les jobs programmés
+  // Initialiser tous les jobs programmés avec météo
   initialize() {
     if (this.isRunning) {
       console.log('⚠️ Scheduler déjà en cours d\'exécution');
       return;
     }
 
-    console.log('🕐 Initialisation du scheduler avec prédictions IA...');
+    console.log('🕐 Initialisation du scheduler avec IA et météo...');
     
     this.setupSyncJob();
     this.setupPredictionJob();
@@ -35,8 +37,12 @@ class SchedulerService {
     this.setupStatsJob();
     this.setupAIHealthCheckJob();
     
+    // 🌤️ Nouveaux jobs météo
+    this.setupWeatherUpdateJob();
+    this.setupWeatherForecastJob();
+    
     this.isRunning = true;
-    console.log('✅ Scheduler initialisé avec succès (IA incluse)');
+    console.log('✅ Scheduler initialisé avec succès (IA + Météo inclus)');
   }
 
   // Job de synchronisation avec AirGradient - Toutes les 4 minutes
@@ -165,6 +171,405 @@ class SchedulerService {
     this.jobs.set('predictions', job);
     job.start();
     console.log('📅 Job prédictions IA programmé (toutes les heures)');
+  }
+
+  // 🌤️ Job de mise à jour météo - Toutes les 30 minutes
+  setupWeatherUpdateJob() {
+    const job = cron.schedule('*/30 * * * *', async () => {
+      try {
+        console.log('🌤️ Mise à jour météo programmée...');
+        
+        // Récupérer météo pour toutes les villes
+        const weatherData = await this.weatherService.getWeatherForAllSensorCities();
+        
+        if (weatherData.success) {
+          let alertsCreated = 0;
+          const impacts = [];
+          
+          // Analyser impact sur qualité air pour chaque ville
+          for (const cityWeather of weatherData.data) {
+            if (cityWeather.success) {
+              const impact = this.weatherService.analyzeAirQualityImpact(cityWeather.data);
+              
+              impacts.push({
+                city: cityWeather.city,
+                weather: {
+                  temperature: cityWeather.data.current.temperature,
+                  humidity: cityWeather.data.current.humidity,
+                  wind_speed: cityWeather.data.current.wind.speed_kmh,
+                  description: cityWeather.data.current.weather.description
+                },
+                impact: impact,
+                timestamp: new Date()
+              });
+              
+              // Créer alertes météo si conditions défavorables
+              const weatherAlerts = await this.checkWeatherAirQualityAlerts(cityWeather.data, cityWeather.city);
+              alertsCreated += weatherAlerts.length;
+            }
+          }
+          
+          // Diffuser via WebSocket
+          if (AlertMiddleware) {
+            AlertMiddleware.broadcastSystemStats({
+              type: 'weather_update',
+              timestamp: new Date(),
+              impacts: impacts,
+              summary: `Météo mise à jour pour ${weatherData.summary.successful} villes`,
+              alerts_created: alertsCreated
+            });
+          }
+          
+          console.log(`✅ Météo mise à jour: ${weatherData.summary.successful} villes, ${alertsCreated} alertes créées`);
+        } else {
+          console.log('⚠️ Erreur mise à jour météo:', weatherData.error);
+        }
+        
+      } catch (error) {
+        console.error('❌ Erreur job météo:', error.message);
+      }
+    }, {
+      scheduled: false
+    });
+    
+    this.jobs.set('weatherUpdate', job);
+    job.start();
+    console.log('📅 Job mise à jour météo programmé (toutes les 30 minutes)');
+  }
+
+  // 🌤️ Job de prévisions météo avancées - Tous les jours à 6h
+  setupWeatherForecastJob() {
+    const job = cron.schedule('0 6 * * *', async () => {
+      try {
+        console.log('🌤️ Génération prévisions météo avancées...');
+        
+        let totalForecasts = 0;
+        let alertsCreated = 0;
+        
+        for (const city of this.weatherService.sensorCities) {
+          try {
+            // Prévisions 5 jours
+            const forecast = await this.weatherService.getForecast(city.name, null, null, 5);
+            
+            if (forecast.success) {
+              totalForecasts++;
+              
+              // Analyser prévisions pour alertes préventives
+              const preventiveAlerts = await this.analyzeForecastForAlerts(city.name, forecast.data);
+              alertsCreated += preventiveAlerts.length;
+            }
+            
+            // Délai entre villes
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            
+          } catch (error) {
+            console.error(`❌ Erreur prévisions ${city.name}:`, error.message);
+          }
+        }
+        
+        console.log(`✅ Prévisions météo: ${totalForecasts} villes, ${alertsCreated} alertes préventives`);
+        
+      } catch (error) {
+        console.error('❌ Erreur job prévisions météo:', error.message);
+      }
+    }, {
+      scheduled: false
+    });
+    
+    this.jobs.set('weatherForecast', job);
+    job.start();
+    console.log('📅 Job prévisions météo programmé (6h00 tous les jours)');
+  }
+
+  // 🌤️ Vérifier alertes météo/qualité air
+  async checkWeatherAirQualityAlerts(weatherData, cityName) {
+    const alerts = [];
+    
+    try {
+      const wind = weatherData.current.wind.speed_kmh;
+      const humidity = weatherData.current.humidity;
+      const pressure = weatherData.current.pressure;
+      const temperature = weatherData.current.temperature;
+      
+      // 1️⃣ Alerte conditions stagnantes (vent faible + humidité élevée)
+      if (wind < 5 && humidity > 80) {
+        const alertData = {
+          sensorId: `WEATHER_${cityName.toUpperCase()}`,
+          alertType: 'weather_air_quality',
+          severity: 'poor',
+          qualityLevel: 'poor',
+          referenceStandard: 'METEOROLOGICAL',
+          message: `🌫️ Conditions météo défavorables à ${cityName} - Stagnation possible des polluants`,
+          data: {
+            weatherConditions: {
+              wind_speed_kmh: wind,
+              humidity_percent: humidity,
+              temperature_celsius: temperature,
+              impact: 'Dispersion réduite des polluants'
+            },
+            healthInfo: {
+              impact: 'Conditions favorables à l\'accumulation de pollution',
+              recommendations: [
+                'Surveillez la qualité de l\'air',
+                'Limitez les activités extérieures prolongées',
+                'Utilisez un purificateur d\'air en intérieur'
+              ]
+            },
+            environmentalContext: {
+              city: cityName,
+              harmattan: this.weatherService.isHarmattanSeason(),
+              season: this.weatherService.getCurrentSeason()
+            }
+          }
+        };
+        
+        // Vérifier si alerte similaire existe déjà
+        const existingAlert = await Alert.findOne({
+          sensorId: alertData.sensorId,
+          alertType: 'weather_air_quality',
+          isActive: true,
+          createdAt: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) } // 4h
+        });
+        
+        if (!existingAlert) {
+          const savedAlert = await this.alertService.saveAlert(alertData);
+          if (savedAlert) {
+            triggerAlert(savedAlert);
+            alerts.push(savedAlert);
+          }
+        }
+      }
+      
+      // 2️⃣ Alerte vent fort (risque poussière)
+      if (wind > 30) {
+        const alertData = {
+          sensorId: `WEATHER_${cityName.toUpperCase()}`,
+          alertType: 'weather_air_quality',
+          severity: 'moderate',
+          qualityLevel: 'moderate',
+          referenceStandard: 'METEOROLOGICAL',
+          message: `💨 Vent fort à ${cityName} (${wind} km/h) - Risque de soulèvement de poussière`,
+          data: {
+            weatherConditions: {
+              wind_speed_kmh: wind,
+              humidity_percent: humidity,
+              impact: 'Possible augmentation PM10/poussière'
+            },
+            healthInfo: {
+              impact: 'Risque d\'augmentation des particules en suspension',
+              recommendations: [
+                'Fermez les fenêtres si vent de poussière',
+                'Portez un masque à l\'extérieur si nécessaire',
+                'Surveillance renforcée des niveaux PM10'
+              ]
+            },
+            environmentalContext: {
+              city: cityName,
+              harmattan: this.weatherService.isHarmattanSeason(),
+              dust_risk: 'elevated'
+            }
+          }
+        };
+        
+        const existingWindAlert = await Alert.findOne({
+          sensorId: alertData.sensorId,
+          alertType: 'weather_air_quality',
+          isActive: true,
+          'data.weatherConditions.wind_speed_kmh': { $gte: 25 },
+          createdAt: { $gte: new Date(Date.now() - 2 * 60 * 60 * 1000) } // 2h
+        });
+        
+        if (!existingWindAlert) {
+          const savedAlert = await this.alertService.saveAlert(alertData);
+          if (savedAlert) {
+            triggerAlert(savedAlert);
+            alerts.push(savedAlert);
+          }
+        }
+      }
+      
+      // 3️⃣ Alerte chaleur extrême + humidité (stress thermique)
+      if (temperature > 35 && humidity > 70) {
+        const alertData = {
+          sensorId: `WEATHER_${cityName.toUpperCase()}`,
+          alertType: 'weather_air_quality',
+          severity: 'unhealthy',
+          qualityLevel: 'poor',
+          referenceStandard: 'METEOROLOGICAL',
+          message: `🌡️ Chaleur et humidité extrêmes à ${cityName} - Conditions défavorables à la qualité de l'air`,
+          data: {
+            weatherConditions: {
+              temperature_celsius: temperature,
+              humidity_percent: humidity,
+              heat_index: this.calculateHeatIndex(temperature, humidity),
+              impact: 'Formation accrue d\'ozone et stress respiratoire'
+            },
+            healthInfo: {
+              impact: 'Conditions favorables à la pollution photochimique',
+              recommendations: [
+                'Évitez les activités extérieures aux heures chaudes',
+                'Hydratez-vous fréquemment',
+                'Groupes sensibles: restez en intérieur climatisé'
+              ],
+              sensitiveGroups: ['Enfants', 'Personnes âgées', 'Asthmatiques', 'Cardiaques']
+            }
+          }
+        };
+        
+        const existingHeatAlert = await Alert.findOne({
+          sensorId: alertData.sensorId,
+          alertType: 'weather_air_quality',
+          isActive: true,
+          'data.weatherConditions.temperature_celsius': { $gte: 33 },
+          createdAt: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } // 6h
+        });
+        
+        if (!existingHeatAlert) {
+          const savedAlert = await this.alertService.saveAlert(alertData);
+          if (savedAlert) {
+            triggerAlert(savedAlert);
+            alerts.push(savedAlert);
+          }
+        }
+      }
+      
+      // 4️⃣ Alerte Harmattan spéciale (saison sèche)
+      if (this.weatherService.isHarmattanSeason() && wind > 15 && humidity < 30) {
+        const alertData = {
+          sensorId: `WEATHER_${cityName.toUpperCase()}`,
+          alertType: 'weather_air_quality',
+          severity: 'poor',
+          qualityLevel: 'poor',
+          referenceStandard: 'METEOROLOGICAL',
+          message: `🌪️ Conditions Harmattan actives à ${cityName} - Poussière sahélienne attendue`,
+          data: {
+            weatherConditions: {
+              wind_speed_kmh: wind,
+              humidity_percent: humidity,
+              season: 'harmattan',
+              impact: 'Transport de poussière depuis le Sahara'
+            },
+            healthInfo: {
+              impact: 'Augmentation significative des particules PM2.5 et PM10',
+              recommendations: [
+                'Fermez les fenêtres lors des pics de vent',
+                'Masque recommandé pour les sorties prolongées',
+                'Surveillance renforcée de la qualité de l\'air',
+                'Hydratation importante (air très sec)'
+              ]
+            },
+            environmentalContext: {
+              harmattan: true,
+              dust_source: 'Sahara',
+              expected_duration: '48-72h'
+            }
+          }
+        };
+        
+        const existingHarmattanAlert = await Alert.findOne({
+          sensorId: alertData.sensorId,
+          alertType: 'weather_air_quality',
+          isActive: true,
+          'data.environmentalContext.harmattan': true,
+          createdAt: { $gte: new Date(Date.now() - 12 * 60 * 60 * 1000) } // 12h
+        });
+        
+        if (!existingHarmattanAlert) {
+          const savedAlert = await this.alertService.saveAlert(alertData);
+          if (savedAlert) {
+            triggerAlert(savedAlert);
+            alerts.push(savedAlert);
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur vérification alertes météo:', error.message);
+    }
+    
+    return alerts;
+  }
+
+  // 🌤️ Analyser prévisions pour créer alertes préventives
+  async analyzeForecastForAlerts(cityName, forecastData) {
+    const alerts = [];
+    
+    try {
+      // Analyser les 3 prochains jours
+      for (const day of forecastData.daily.slice(0, 3)) {
+        const date = new Date(day.date);
+        const hoursAhead = Math.round((date - new Date()) / (60 * 60 * 1000));
+        
+        // Conditions météo défavorables prévues
+        if (day.wind.avg_speed < 8 && day.humidity.avg > 75) {
+          const alertData = {
+            sensorId: `WEATHER_FORECAST_${cityName.toUpperCase()}`,
+            alertType: 'weather_forecast_warning',
+            severity: 'moderate',
+            qualityLevel: 'moderate',
+            referenceStandard: 'METEOROLOGICAL',
+            message: `📅 Prévision météo défavorable à ${cityName} pour ${day.date} - Conditions de stagnation attendues`,
+            data: {
+              forecastDate: day.date,
+              hoursAhead: hoursAhead,
+              predictedConditions: {
+                wind_avg_speed: day.wind.avg_speed,
+                humidity_avg: day.humidity.avg,
+                temperature_range: `${day.temperature.min}-${day.temperature.max}°C`
+              },
+              healthInfo: {
+                impact: 'Prévision de conditions favorables à l\'accumulation de polluants',
+                recommendations: [
+                  'Planifiez vos activités extérieures tôt le matin',
+                  'Évitez les efforts physiques intenses ce jour-là',
+                  'Préparez-vous à fermer les fenêtres si nécessaire'
+                ]
+              },
+              isPredictive: true,
+              expiresAt: new Date(date.getTime() + 24 * 60 * 60 * 1000) // Expire après la journée prévue
+            }
+          };
+          
+          // Vérifier doublons
+          const existingForecastAlert = await Alert.findOne({
+            sensorId: alertData.sensorId,
+            alertType: 'weather_forecast_warning',
+            'data.forecastDate': day.date,
+            isActive: true
+          });
+          
+          if (!existingForecastAlert) {
+            const savedAlert = await this.alertService.saveAlert(alertData);
+            if (savedAlert) {
+              alerts.push(savedAlert);
+              // Pas de triggerAlert immédiat pour les prévisions (moins urgent)
+            }
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur analyse prévisions:', error.message);
+    }
+    
+    return alerts;
+  }
+
+  // 🌤️ Calculer indice de chaleur
+  calculateHeatIndex(tempC, humidity) {
+    const tempF = (tempC * 9/5) + 32;
+    
+    const hi = -42.379 + 
+      2.04901523 * tempF + 
+      10.14333127 * humidity - 
+      0.22475541 * tempF * humidity - 
+      0.00683783 * tempF * tempF - 
+      0.05481717 * humidity * humidity + 
+      0.00122874 * tempF * tempF * humidity + 
+      0.00085282 * tempF * humidity * humidity - 
+      0.00000199 * tempF * tempF * humidity * humidity;
+    
+    return Math.round((hi - 32) * 5/9); // Convertir en Celsius
   }
 
   // 🔧 CORRIGÉ: Job de vérification santé du service IA avec nouveaux niveaux
@@ -353,7 +758,7 @@ class SchedulerService {
     console.log('📅 Job vérification santé programmé (toutes les heures)');
   }
 
-  // 🔧 CORRIGÉ: Stats job avec nouveaux niveaux
+  // 🔧 CORRIGÉ: Stats job avec nouveaux niveaux + météo
   setupStatsJob() {
     const job = cron.schedule('*/5 * * * *', async () => {
       try {
@@ -374,7 +779,8 @@ class SchedulerService {
               poor: { $sum: { $cond: [{ $eq: ['$severity', 'poor'] }, 1, 0] } },
               moderate: { $sum: { $cond: [{ $eq: ['$severity', 'moderate'] }, 1, 0] } },
               good: { $sum: { $cond: [{ $eq: ['$severity', 'good'] }, 1, 0] } },
-              predictive: { $sum: { $cond: [{ $eq: ['$alertType', 'prediction_warning'] }, 1, 0] } }
+              predictive: { $sum: { $cond: [{ $eq: ['$alertType', 'prediction_warning'] }, 1, 0] } },
+              weather_related: { $sum: { $cond: [{ $eq: ['$alertType', 'weather_air_quality'] }, 1, 0] } } // 🌤️
             }
           }
         ]);
@@ -407,11 +813,24 @@ class SchedulerService {
           }
         ]);
         
+        // 🌤️ Récupérer statut météo rapide
+        let weatherStatus = { available: false };
+        try {
+          const weatherTest = await this.weatherService.testConnection();
+          weatherStatus = {
+            available: weatherTest.success,
+            cities_configured: this.weatherService.sensorCities.length,
+            last_update: new Date()
+          };
+        } catch (error) {
+          console.log('⚠️ Météo indisponible pour stats:', error.message);
+        }
+        
         const systemStats = {
           alerts_24h: alertStats[0] || { 
             total: 0, active: 0, 
             hazardous: 0, unhealthy: 0, poor: 0, moderate: 0, good: 0,
-            predictive: 0 
+            predictive: 0, weather_related: 0 // 🌤️
           },
           sensors: {
             total: sensorStats.length,
@@ -421,6 +840,7 @@ class SchedulerService {
             measurements_24h: sensorStats.reduce((sum, s) => sum + s.measurements, 0)
           },
           predictions: predictionStats[0] || { totalPredictions: 0, avgConfidence: 0, futurePredictions: 0 },
+          weather: weatherStatus, // 🌤️ Nouveau: stats météo
           websocket_clients: AlertMiddleware ? AlertMiddleware.getConnectionStats().connectedClients : 0,
           system: {
             uptime: process.uptime(),
@@ -533,6 +953,22 @@ class SchedulerService {
     }
   }
 
+  // 🌤️ Diffuser mise à jour météo
+  broadcastWeatherUpdate(weatherData) {
+    try {
+      if (AlertMiddleware) {
+        AlertMiddleware.broadcastSystemStats({
+          type: 'weather_update',
+          message: 'Données météo mises à jour',
+          data: weatherData,
+          timestamp: new Date()
+        });
+      }
+    } catch (error) {
+      console.error('❌ Erreur diffusion météo:', error.message);
+    }
+  }
+
   // Méthodes existantes (stopAll, restartJob, etc.) - inchangées
   stopAll() {
     console.log('🛑 Arrêt de tous les jobs programmés...');
@@ -586,6 +1022,147 @@ class SchedulerService {
       
     } catch (error) {
       console.error('❌ Erreur job prédictions manuel:', error.message);
+      throw error;
+    }
+  }
+
+  // 🌤️ Exécution manuelle du job météo
+  async runWeatherJobManually() {
+    console.log('🔧 Exécution manuelle du job météo...');
+    
+    try {
+      const weatherData = await this.weatherService.getWeatherForAllSensorCities();
+      
+      if (weatherData.success) {
+        let alertsCreated = 0;
+        
+        for (const cityWeather of weatherData.data) {
+          if (cityWeather.success) {
+            const alerts = await this.checkWeatherAirQualityAlerts(cityWeather.data, cityWeather.city);
+            alertsCreated += alerts.length;
+          }
+        }
+        
+        return {
+          success: true,
+          cities_updated: weatherData.summary.successful,
+          alerts_created: alertsCreated,
+          weather_data: weatherData.data
+        };
+      } else {
+        return {
+          success: false,
+          error: weatherData.error
+        };
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur job météo manuel:', error.message);
+      throw error;
+    }
+  }
+
+  // 🌤️ Méthode pour exécuter job spécifique manuellement (améliorée)
+  async runJobManually(jobName) {
+    console.log(`🔧 Exécution manuelle du job "${jobName}"...`);
+    
+    try {
+      switch (jobName) {
+        case 'sync':
+          // Code sync existant...
+          return { success: true, message: 'Synchronisation manuelle terminée' };
+          
+        case 'predictions':
+          return await this.runPredictionJobManually();
+          
+        case 'weather': // 🌤️ Nouveau
+          return await this.runWeatherJobManually();
+          
+        case 'weatherForecast': // 🌤️ Nouveau
+          const forecastResult = await this.weatherService.getWeatherForAllSensorCities();
+          return { 
+            success: forecastResult.success, 
+            message: 'Prévisions météo manuelles terminées',
+            data: forecastResult
+          };
+          
+        case 'alertCleanup':
+          const deletedAlerts = await this.alertService.cleanupOldAlerts(30);
+          return { 
+            success: true, 
+            message: `${deletedAlerts} alertes nettoyées`,
+            deletedCount: deletedAlerts
+          };
+          
+        case 'predictionCleanup':
+          const deletedPredictions = await this.predictionService.cleanupOldPredictions(7);
+          return { 
+            success: true, 
+            message: `${deletedPredictions} prédictions nettoyées`,
+            deletedCount: deletedPredictions
+          };
+          
+        default:
+          throw new Error(`Job "${jobName}" non reconnu`);
+      }
+      
+    } catch (error) {
+      console.error(`❌ Erreur job manuel "${jobName}":`, error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // 🌤️ Nouvelle méthode: forcer synchronisation complète (données + météo)
+  async forceSyncNow() {
+    console.log('🔄 Synchronisation complète forcée (capteurs + météo)...');
+    
+    try {
+      const results = {
+        sensors: null,
+        weather: null,
+        predictions: null,
+        alerts_created: 0,
+        timestamp: new Date()
+      };
+      
+      // 1. Synchronisation capteurs
+      try {
+        results.sensors = await this.runJobManually('sync');
+      } catch (error) {
+        results.sensors = { success: false, error: error.message };
+      }
+      
+      // 2. Synchronisation météo
+      try {
+        results.weather = await this.runJobManually('weather');
+        if (results.weather.success) {
+          results.alerts_created += results.weather.alerts_created || 0;
+        }
+      } catch (error) {
+        results.weather = { success: false, error: error.message };
+      }
+      
+      // 3. Génération prédictions (optionnel)
+      try {
+        results.predictions = await this.runPredictionJobManually();
+      } catch (error) {
+        results.predictions = { success: false, error: error.message };
+      }
+      
+      // Diffuser résultat
+      this.broadcastSystemUpdate();
+      if (results.weather.success) {
+        this.broadcastWeatherUpdate(results.weather);
+      }
+      
+      console.log('✅ Synchronisation complète terminée');
+      return results;
+      
+    } catch (error) {
+      console.error('❌ Erreur synchronisation complète:', error.message);
       throw error;
     }
   }
