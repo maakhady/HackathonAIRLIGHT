@@ -1,4 +1,4 @@
-// services/SchedulerService.js - MISE À JOUR avec prédictions
+// services/SchedulerService.js - NIVEAUX DE SÉVÉRITÉ CORRIGÉS
 const cron = require('node-cron');
 const AirGradientService = require('./AirGradientService');
 const AlertService = require('./AlertService');
@@ -39,7 +39,7 @@ class SchedulerService {
     console.log('✅ Scheduler initialisé avec succès (IA incluse)');
   }
 
-  // Job de synchronisation avec AirGradient - Toutes les 4 minutes ) cooriger
+  // Job de synchronisation avec AirGradient - Toutes les 4 minutes
   setupSyncJob() {
     const job = cron.schedule('*/4 * * * *', async () => {
       try {
@@ -167,7 +167,7 @@ class SchedulerService {
     console.log('📅 Job prédictions IA programmé (toutes les heures)');
   }
 
-  // Job de vérification santé du service IA - Toutes les 30 minutes
+  // 🔧 CORRIGÉ: Job de vérification santé du service IA avec nouveaux niveaux
   setupAIHealthCheckJob() {
     const job = cron.schedule('*/30 * * * *', async () => {
       try {
@@ -185,7 +185,9 @@ class SchedulerService {
             const aiDownAlert = {
               sensorId: 'SYSTEM',
               alertType: 'ai_service_down',
-              severity: 'medium',
+              severity: 'poor', // 🔧 CORRIGÉ: 'poor' au lieu de 'medium'
+              qualityLevel: 'poor',
+              referenceStandard: 'WHO_2021',
               message: '🤖 Service IA indisponible - Prédictions en mode dégradé',
               data: {
                 error: aiHealth.error,
@@ -289,6 +291,7 @@ class SchedulerService {
     console.log('📅 Job nettoyage données programmé (dimanche 3h00)');
   }
 
+  // 🔧 CORRIGÉ: Health check avec nouveaux niveaux de sévérité
   setupHealthCheckJob() {
     const job = cron.schedule('0 * * * *', async () => {
       try {
@@ -315,7 +318,9 @@ class SchedulerService {
               const offlineAlert = {
                 sensorId: sensor.id,
                 alertType: 'sensor_offline',
-                severity: 'medium',
+                severity: 'poor', // 🔧 CORRIGÉ: 'poor' au lieu de 'medium'
+                qualityLevel: 'poor',
+                referenceStandard: 'WHO_2021',
                 message: `📡 Capteur hors ligne: ${sensor.name} (${sensor.city})`,
                 data: {
                   location: sensor.name,
@@ -348,13 +353,14 @@ class SchedulerService {
     console.log('📅 Job vérification santé programmé (toutes les heures)');
   }
 
+  // 🔧 CORRIGÉ: Stats job avec nouveaux niveaux
   setupStatsJob() {
     const job = cron.schedule('*/5 * * * *', async () => {
       try {
         const now = new Date();
         const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         
-        // Stats alertes
+        // Stats alertes avec nouveaux niveaux
         const alertStats = await Alert.aggregate([
           { $match: { createdAt: { $gte: last24h } } },
           {
@@ -362,8 +368,12 @@ class SchedulerService {
               _id: null,
               total: { $sum: 1 },
               active: { $sum: { $cond: ['$isActive', 1, 0] } },
-              critical: { $sum: { $cond: [{ $eq: ['$severity', 'critical'] }, 1, 0] } },
-              high: { $sum: { $cond: [{ $eq: ['$severity', 'high'] }, 1, 0] } },
+              // 🔧 CORRIGÉ: Nouveaux niveaux de sévérité
+              hazardous: { $sum: { $cond: [{ $eq: ['$severity', 'hazardous'] }, 1, 0] } },
+              unhealthy: { $sum: { $cond: [{ $eq: ['$severity', 'unhealthy'] }, 1, 0] } },
+              poor: { $sum: { $cond: [{ $eq: ['$severity', 'poor'] }, 1, 0] } },
+              moderate: { $sum: { $cond: [{ $eq: ['$severity', 'moderate'] }, 1, 0] } },
+              good: { $sum: { $cond: [{ $eq: ['$severity', 'good'] }, 1, 0] } },
               predictive: { $sum: { $cond: [{ $eq: ['$alertType', 'prediction_warning'] }, 1, 0] } }
             }
           }
@@ -398,7 +408,11 @@ class SchedulerService {
         ]);
         
         const systemStats = {
-          alerts_24h: alertStats[0] || { total: 0, active: 0, critical: 0, high: 0, predictive: 0 },
+          alerts_24h: alertStats[0] || { 
+            total: 0, active: 0, 
+            hazardous: 0, unhealthy: 0, poor: 0, moderate: 0, good: 0,
+            predictive: 0 
+          },
           sensors: {
             total: sensorStats.length,
             active: sensorStats.filter(s => 
@@ -432,7 +446,7 @@ class SchedulerService {
     console.log('📅 Job statistiques programmé (toutes les 5 minutes)');
   }
 
-  // Méthodes utilitaires pour les prédictions
+  // 🔧 CORRIGÉ: Méthodes utilitaires pour les prédictions avec nouveaux niveaux
   async checkPredictiveAlerts(sensorId, predictions) {
     let alertsCreated = 0;
     
@@ -442,10 +456,25 @@ class SchedulerService {
         if (prediction.predictedPM25 > 50 && prediction.confidence > 0.7) {
           const hoursAhead = Math.round((new Date(prediction.predictionFor) - new Date()) / (60 * 60 * 1000));
           
+          // 🔧 CORRIGÉ: Utiliser nouveaux niveaux de sévérité
+          let severity, qualityLevel;
+          if (prediction.predictedPM25 > 100) {
+            severity = 'unhealthy';
+            qualityLevel = 'very_poor';
+          } else if (prediction.predictedPM25 > 75) {
+            severity = 'poor';
+            qualityLevel = 'poor';
+          } else {
+            severity = 'moderate';
+            qualityLevel = 'moderate';
+          }
+          
           const alertData = {
             sensorId,
             alertType: 'prediction_warning',
-            severity: prediction.predictedPM25 > 100 ? 'high' : 'medium',
+            severity,
+            qualityLevel,
+            referenceStandard: 'WHO_2021',
             message: `🔮 Alerte prédictive: PM2.5 prévu à ${prediction.predictedPM25.toFixed(1)} µg/m³ dans ${hoursAhead}h`,
             data: {
               predictedValue: prediction.predictedPM25,
