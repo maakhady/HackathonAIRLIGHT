@@ -1,4 +1,4 @@
-// services/WeatherService.js - Service météo avec OpenWeatherMap
+// services/WeatherService.js - Service météo COMPLET avec OpenWeatherMap
 const axios = require('axios');
 
 class WeatherService {
@@ -457,49 +457,6 @@ class WeatherService {
     return impact;
   }
 
-  // 🔮 Prédiction AQI selon météo
-  predictAQIFromWeather(dayWeather) {
-    let prediction = 'stable';
-    let confidence = 0.5;
-    
-    // Vent fort = amélioration
-    if (dayWeather.wind.avg_speed > 15) {
-      prediction = 'improvement';
-      confidence = 0.8;
-    }
-    // Vent faible + humidité = dégradation
-    else if (dayWeather.wind.avg_speed < 5 && dayWeather.humidity.avg > 75) {
-      prediction = 'deterioration';
-      confidence = 0.7;
-    }
-
-    return { prediction, confidence };
-  }
-
-  // 🏜️ Évaluation risque poussière
-  assessDustRisk(dayWeather) {
-    let risk = 'low';
-    
-    // Conditions favorables à la poussière
-    if (dayWeather.wind.max_speed > 25 && dayWeather.humidity.avg < 40) {
-      risk = 'high';
-    } else if (dayWeather.wind.avg_speed > 15 && dayWeather.humidity.avg < 60) {
-      risk = 'moderate';
-    }
-    
-    return risk;
-  }
-
-  // 🪟 Conditions de ventilation
-  assessVentilation(dayWeather) {
-    const wind = dayWeather.wind.avg_speed;
-    
-    if (wind > 15) return 'excellent';
-    if (wind > 8) return 'good';
-    if (wind > 3) return 'fair';
-    return 'poor';
-  }
-
   // 🔧 Test de connexion API
   async testConnection() {
     try {
@@ -552,6 +509,222 @@ class WeatherService {
         'Données en français',
         'Recherche de villes'
       ]
+    };
+  }
+
+  // 🆕 ===== MÉTHODES MANQUANTES AJOUTÉES =====
+
+  // Déterminer si c'est la saison Harmattan
+  isHarmattanSeason() {
+    const month = new Date().getMonth(); // 0-11
+    return month >= 10 || month <= 2; // Nov-Fév
+  }
+
+  // Obtenir la saison actuelle
+  getCurrentSeason() {
+    const month = new Date().getMonth();
+    if (month >= 10 || month <= 2) return 'harmattan';
+    if (month >= 6 && month <= 9) return 'wet_season';
+    return 'dry_season';
+  }
+
+  // Prédire impact AQI selon météo
+  predictAQIFromWeather(dayWeather) {
+    let prediction = 'stable';
+    let confidence = 0.5;
+    
+    if (!dayWeather || !dayWeather.wind) {
+      return { prediction, confidence };
+    }
+    
+    // Vent fort = amélioration
+    if (dayWeather.wind.avg_speed > 15) {
+      prediction = 'improvement';
+      confidence = 0.8;
+    }
+    // Vent faible + humidité = dégradation
+    else if (dayWeather.wind.avg_speed < 5 && 
+             dayWeather.humidity && dayWeather.humidity.avg > 75) {
+      prediction = 'deterioration';
+      confidence = 0.7;
+    }
+
+    return { prediction, confidence };
+  }
+
+  // Évaluer risque poussière
+  assessDustRisk(dayWeather) {
+    let risk = 'low';
+    
+    if (!dayWeather || !dayWeather.wind || !dayWeather.humidity) {
+      return risk;
+    }
+    
+    // Conditions favorables à la poussière
+    if (dayWeather.wind.max_speed > 25 && dayWeather.humidity.avg < 40) {
+      risk = 'high';
+    } else if (dayWeather.wind.avg_speed > 15 && dayWeather.humidity.avg < 60) {
+      risk = 'moderate';
+    }
+    
+    return risk;
+  }
+
+  // Conditions de ventilation
+  assessVentilation(dayWeather) {
+    if (!dayWeather || !dayWeather.wind) {
+      return 'unknown';
+    }
+    
+    const wind = dayWeather.wind.avg_speed || 0;
+    
+    if (wind > 15) return 'excellent';
+    if (wind > 8) return 'good';
+    if (wind > 3) return 'fair';
+    return 'poor';
+  }
+
+  // Analyser tendance pour rapport
+  analyzeTrend(dataPoints) {
+    if (!dataPoints || dataPoints.length < 2) {
+      return 'Données insuffisantes';
+    }
+    
+    try {
+      const recent = dataPoints.slice(0, Math.floor(dataPoints.length / 2));
+      const older = dataPoints.slice(Math.floor(dataPoints.length / 2));
+      
+      const recentScore = this.calculateAverageScore(recent);
+      const olderScore = this.calculateAverageScore(older);
+      
+      if (recentScore > olderScore) return '📈 Qualité en dégradation';
+      if (recentScore < olderScore) return '📉 Qualité en amélioration';
+      return '➡️ Qualité stable';
+    } catch (error) {
+      return 'Erreur analyse tendance';
+    }
+  }
+
+  // Calculer score moyen pour analyse tendance
+  calculateAverageScore(dataPoints) {
+    if (!dataPoints || dataPoints.length === 0) return 0;
+    
+    const scores = { 
+      good: 1, moderate: 2, poor: 3, 
+      unhealthy: 4, hazardous: 5, very_poor: 4 
+    };
+    
+    const total = dataPoints.reduce((sum, point) => {
+      const severity = point.severity || point.qualityLevel || 'good';
+      return sum + (scores[severity] || 1);
+    }, 0);
+    
+    return dataPoints.length > 0 ? total / dataPoints.length : 0;
+  }
+
+  // Générer rapport qualité air
+  async generateAirQualityReport(sensorId, hours = 24) {
+    try {
+      const currentWeather = await this.getCurrentWeather('Dakar'); // Par défaut Dakar
+      
+      if (!currentWeather.success) {
+        return null;
+      }
+      
+      const report = {
+        sensorId,
+        period: `${hours}h`,
+        timestamp: new Date(),
+        weather_conditions: {
+          temperature: currentWeather.data.current.temperature,
+          humidity: currentWeather.data.current.humidity,
+          wind_speed: currentWeather.data.current.wind.speed_kmh,
+          description: currentWeather.data.current.weather.description
+        },
+        air_quality_impact: this.analyzeAirQualityImpact(currentWeather.data),
+        recommendations: this.getContextualRecommendations(currentWeather.data, sensorId),
+        harmattan_season: this.isHarmattanSeason(),
+        season: this.getCurrentSeason()
+      };
+      
+      return report;
+      
+    } catch (error) {
+      console.error('❌ Erreur génération rapport:', error.message);
+      return null;
+    }
+  }
+
+  // Recommandations contextuelles
+  getContextualRecommendations(weatherData, sensorId) {
+    const recommendations = [];
+    const wind = weatherData.current.wind.speed_kmh;
+    
+    if (wind > 20) {
+      recommendations.push('💨 Vent fort - Excellente opportunité d\'aérer les espaces');
+    } else if (wind < 5) {
+      recommendations.push('😷 Vent faible - Surveillez la qualité de l\'air');
+    }
+    
+    if (this.isHarmattanSeason()) {
+      recommendations.push('🌪️ Saison Harmattan - Attention à la poussière sahélienne');
+    }
+    
+    if (weatherData.current.humidity > 85) {
+      recommendations.push('💧 Humidité élevée - Particules restent en suspension');
+    }
+    
+    return recommendations;
+  }
+
+  // Obtenir recommandations santé selon valeur de polluant
+  getHealthRecommendations(pollutant, value) {
+    const recommendations = {
+      pm25: {
+        good: ['Profitez des activités extérieures', 'Conditions idéales pour le sport'],
+        moderate: ['Activités normales possibles', 'Surveillance pour personnes sensibles'],
+        poor: ['Limitez les activités extérieures prolongées', 'Personnes sensibles: restez à l\'intérieur'],
+        unhealthy: ['Évitez les activités extérieures', 'Fermez les fenêtres', 'Utilisez un purificateur d\'air'],
+        hazardous: ['Restez à l\'intérieur', 'Portez un masque N95 si sortie nécessaire', 'Évitez tout effort physique']
+      },
+      pm10: {
+        good: ['Conditions excellentes pour toutes activités'],
+        moderate: ['Activités normales, surveillance pour asthmatiques'],
+        poor: ['Limitez les activités extérieures intenses'],
+        unhealthy: ['Évitez les activités extérieures', 'Portez un masque'],
+        hazardous: ['Restez à l\'intérieur', 'Masque N95 obligatoire']
+      },
+      co2: {
+        good: ['Ventilation adéquate'],
+        moderate: ['Aérez régulièrement'],
+        poor: ['Améliorez la ventilation', 'Ouvrez les fenêtres'],
+        unhealthy: ['Ventilation immédiate requise', 'Quittez la pièce si possible']
+      }
+    };
+
+    let level = 'good';
+    
+    if (pollutant === 'pm25') {
+      if (value >= 75) level = 'hazardous';
+      else if (value >= 55) level = 'unhealthy';
+      else if (value >= 35) level = 'poor';
+      else if (value >= 15) level = 'moderate';
+    } else if (pollutant === 'pm10') {
+      if (value >= 150) level = 'hazardous';
+      else if (value >= 75) level = 'unhealthy';
+      else if (value >= 45) level = 'poor';
+      else if (value >= 25) level = 'moderate';
+    } else if (pollutant === 'co2') {
+      if (value >= 2000) level = 'unhealthy';
+      else if (value >= 1500) level = 'poor';
+      else if (value >= 1000) level = 'moderate';
+    }
+
+    return {
+      level,
+      recommendations: recommendations[pollutant]?.[level] || ['Données insuffisantes'],
+      value: parseFloat(value),
+      pollutant
     };
   }
 }
