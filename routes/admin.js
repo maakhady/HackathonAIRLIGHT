@@ -337,6 +337,49 @@ router.delete('/users/:id', async (req, res) => {
   }
 });
 
+// PATCH /admin/users/:id/reactivate - Réactiver un utilisateur
+router.patch('/users/:id/reactivate', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Empêcher un utilisateur de se réactiver lui-même si ce n’est pas autorisé
+    // (optionnel selon ta logique métier)
+    if (id === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Impossible de réactiver votre propre compte'
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      id,
+      { isActive: true },
+      { new: true }
+    ).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Utilisateur non trouvé'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Utilisateur réactivé',
+      data: user
+    });
+  } catch (error) {
+    console.error('Erreur réactivation utilisateur:', error.message);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur lors de la réactivation'
+    });
+  }
+});
+
+
+
 // GET /admin/logs/scheduler - Logs du scheduler
 router.get('/logs/scheduler', (req, res) => {
   try {

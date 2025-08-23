@@ -9,16 +9,16 @@ class AirGradientService {
     // Liste complète des capteurs
     this.sensorLocations = [
       { 
-        serialNo: 'd83bdad43d8', 
-        serialNumeric: parseInt('d83bdad43d8', 16),
+        serialNo: 'd83bda1d43d8', 
+        serialNumeric: parseInt('d83bda1d43d8', 16),
         name: 'Breath4life', 
         city: 'Dakar',
         country: 'SN',
         coordinates: { lat: 14.6928, lng: -17.4467 }
       },
       { 
-        serialNo: 'd83bdae490', 
-        serialNumeric: parseInt('d83bdae490', 16),
+        serialNo: 'd83bda1ae490', 
+        serialNumeric: parseInt('d83bda1ae490', 16),
         name: 'École Élémentaire Ndiangué, Richard-Toll', 
         city: 'Richard-Toll',
         country: 'SN',
@@ -30,7 +30,8 @@ class AirGradientService {
         name: 'École Elhadj Mbaye Diop (Multimedia), Ouakam, Dakar', 
         city: 'Dakar',
         country: 'SN',
-        coordinates: { lat: 14.7167, lng: -17.4833 }
+        coordinates: { lat: 14.7167, lng: -17.4833 },
+        type: 'indoor'
       },
       { 
         serialNo: '34b7da9fed44', 
@@ -81,16 +82,16 @@ class AirGradientService {
         coordinates: { lat: 14.7547, lng: -17.3906 }
       },
       { 
-        serialNo: 'd83bda1cc9bc', 
-        serialNumeric: parseInt('d83bda1cc9bc', 16),
+        serialNo: 'd83bda1c03bc', 
+        serialNumeric: parseInt('d83bda1c03bc', 16),
         name: 'SunuAir', 
         city: 'Dakar',
         country: 'SN',
         coordinates: { lat: 14.6928, lng: -17.4467 }
       },
       { 
-        serialNo: 'd83bda1bc450', 
-        serialNumeric: parseInt('d83bda1bc450', 16),
+        serialNo: 'd83bda1bbc9c',
+        serialNumeric: parseInt('d83bda1bbc9c', 16),
         name: 'AirLight', 
         city: 'Dakar',
         country: 'SN',
@@ -122,8 +123,8 @@ class AirGradientService {
         coordinates: { lat: 14.6928, lng: -17.4467 }
       },
       {
-        serialNo: 'd83bdafc03bc',
-        serialNumeric: parseInt('d83bdafc03bc', 16),
+        serialNo: 'd83bda1c03bc',
+        serialNumeric: parseInt('d83bda1c03bc', 16),
         name: 'SunuAir',
         city: 'Dakar',
         country: 'SN',
