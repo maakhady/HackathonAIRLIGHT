@@ -9,7 +9,7 @@ const alertService = new AlertService();
 const authService = new AuthService();
 
 // GET /alerts - Obtenir toutes les alertes actives
-router.get('/', authService.authenticateToken.bind(authService), async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const { sensorId, severity, qualityLevel, limit = 50, offset = 0 } = req.query;
     
@@ -53,7 +53,7 @@ router.get('/', authService.authenticateToken.bind(authService), async (req, res
 });
 
 // GET /alerts/active - Obtenir les alertes actives pour un capteur
-router.get('/active', authService.authenticateToken.bind(authService), async (req, res) => {
+router.get('/active', async (req, res) => {
   try {
     const { sensorId } = req.query;
     const alerts = await alertService.getActiveAlerts(sensorId);
@@ -389,7 +389,7 @@ router.get('/stats/quick', async (req, res) => {
 });
 
 // GET /alerts/:id - Obtenir une alerte avec détails santé
-router.get('/:id', authService.authenticateToken.bind(authService), async (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const alert = await Alert.findById(req.params.id);
     
@@ -705,7 +705,7 @@ router.delete('/cleanup', authService.requireAdmin.bind(authService), async (req
 });
 
 // GET /alerts/history/:sensorId - Avec enrichissement santé
-router.get('/history/:sensorId', authService.authenticateToken.bind(authService), async (req, res) => {
+router.get('/history/:sensorId', async (req, res) => {
   try {
     const { sensorId } = req.params;
     const { limit = 20, offset = 0, severity, qualityLevel } = req.query;
@@ -764,7 +764,7 @@ router.get('/history/:sensorId', authService.authenticateToken.bind(authService)
 });
 
 // 🆕 GET /alerts/report/:sensorId - Nouveau: Rapport qualité air
-router.get('/report/:sensorId', authService.authenticateToken.bind(authService), async (req, res) => {
+router.get('/report/:sensorId', async (req, res) => {
   try {
     const { sensorId } = req.params;
     const { hours = 24 } = req.query;
@@ -794,7 +794,7 @@ router.get('/report/:sensorId', authService.authenticateToken.bind(authService),
 });
 
 // 🆕 GET /alerts/health-recommendations - Obtenir recommandations santé
-router.get('/health-recommendations', authService.authenticateToken.bind(authService), async (req, res) => {
+router.get('/health-recommendations', async (req, res) => {
   try {
     const { pollutant, value } = req.query;
     

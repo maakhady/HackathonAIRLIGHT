@@ -64,7 +64,7 @@ router.get('/google',
 // GET /auth/google/callback - Callback Google OAuth
 router.get('/google/callback',
   passport.authenticate('google', { 
-    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:3001'}/login?error=google_auth_failed` 
+    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=google_auth_failed` 
   }),
   (req, res) => {
     try {
@@ -72,12 +72,12 @@ router.get('/google/callback',
       const { user, token } = req.user;
       
       // Rediriger vers le frontend avec le token
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       res.redirect(`${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`);
       
     } catch (error) {
       console.error('❌ Erreur callback Google:', error.message);
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
       res.redirect(`${frontendUrl}/login?error=callback_error`);
     }
   }
