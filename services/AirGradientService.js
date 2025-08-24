@@ -92,6 +92,7 @@ class AirGradientService {
       { 
         serialNo: 'd83bda1bbc9c',
         serialNumeric: parseInt('d83bda1bbc9c', 16),
+        locationId: 165738, 
         name: 'AirLight', 
         city: 'Dakar',
         country: 'SN',
@@ -259,160 +260,365 @@ class AirGradientService {
   /**
    * ✅ MODIFIÉ: Récupération données mondiales - retourne vide si offline
    */
-  async tryFetchWorldData() {
-    // ✅ NOUVEAU: Vérifier si le service est online
-    if (!this.apiStatus.isOnline) {
-      console.log('🔒 Service AirGradient offline - pas de récupération de données');
-      return [];
-    }
+  // async tryFetchWorldData() {
+  //   // ✅ NOUVEAU: Vérifier si le service est online
+  //   if (!this.apiStatus.isOnline) {
+  //     console.log('🔒 Service AirGradient offline - pas de récupération de données');
+  //     return [];
+  //   }
     
-    if (this.apiStatus.worldDataAccess === false) {
-      console.log('🔒 Accès données mondiales refusé - pas de données disponibles');
-      return [];
-    }
+  //   if (this.apiStatus.worldDataAccess === false) {
+  //     console.log('🔒 Accès données mondiales refusé - pas de données disponibles');
+  //     return [];
+  //   }
     
-    try {
-      console.log('🌍 Tentative de récupération des données mondiales...');
+  //   try {
+  //     console.log('🌍 Tentative de récupération des données mondiales...');
       
-      const response = await axios.get(`${this.baseURL}/world/locations/measures/current`, {
-        headers: this.getHeaders(),
-        params: this.getAuthParams(),
-        timeout: 15000
-      });
+  //     const response = await axios.get(`${this.baseURL}/world/locations/measures/current`, {
+  //       headers: this.getHeaders(),
+  //       params: this.getAuthParams(),
+  //       timeout: 15000
+  //     });
       
-      const worldData = response.data || [];
-      this.apiStatus.worldDataAccess = true;
+  //     const worldData = response.data || [];
+  //     this.apiStatus.worldDataAccess = true;
       
-      console.log(`🌍 ${worldData.length} mesures mondiales récupérées avec succès`);
+  //     console.log(`🌍 ${worldData.length} mesures mondiales récupérées avec succès`);
       
-      // Chercher vos capteurs dans les données mondiales
-      const yourSensorsData = worldData.filter(measurement => {
-        return this.sensorLocations.some(sensor => {
-          const serialMatch = sensor.serialNo === measurement.serialno || 
-                             sensor.serialNumeric === measurement.serialno;
+  //     // Chercher vos capteurs dans les données mondiales
+  //     const yourSensorsData = worldData.filter(measurement => {
+  //       return this.sensorLocations.some(sensor => {
+  //         const serialMatch = sensor.serialNo === measurement.serialno || 
+  //                            sensor.serialNumeric === measurement.serialno;
           
-          const nameMatch = sensor.name && measurement.locationName &&
-                           (sensor.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
-                            measurement.locationName.toLowerCase().includes(sensor.name.toLowerCase()));
+  //         const nameMatch = sensor.name && measurement.locationName &&
+  //                          (sensor.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
+  //                           measurement.locationName.toLowerCase().includes(sensor.name.toLowerCase()));
           
-          return serialMatch || nameMatch;
-        });
-      });
+  //         return serialMatch || nameMatch;
+  //       });
+  //     });
       
-      console.log(`🇸🇳 ${yourSensorsData.length} de vos capteurs trouvés dans les données mondiales`);
+  //     console.log(`🇸🇳 ${yourSensorsData.length} de vos capteurs trouvés dans les données mondiales`);
       
-      // Log détaillé des capteurs trouvés
-      yourSensorsData.forEach(data => {
-        const sensor = this.sensorLocations.find(s => 
-          s.serialNo === data.serialno || s.serialNumeric === data.serialno
-        );
-        if (sensor) {
-          console.log(`📡 Données trouvées: ${sensor.name} (${data.serialno}) - PM2.5: ${data.pm02}`);
-        }
-      });
+  //     // Log détaillé des capteurs trouvés
+  //     yourSensorsData.forEach(data => {
+  //       const sensor = this.sensorLocations.find(s => 
+  //         s.serialNo === data.serialno || s.serialNumeric === data.serialno
+  //       );
+  //       if (sensor) {
+  //         console.log(`📡 Données trouvées: ${sensor.name} (${data.serialno}) - PM2.5: ${data.pm02}`);
+  //       }
+  //     });
       
-      return yourSensorsData;
+  //     return yourSensorsData;
       
-    } catch (error) {
-      this.apiStatus.worldDataAccess = false;
-      this.apiStatus.isOnline = false; // ✅ Marquer comme offline si erreur
+  //   } catch (error) {
+  //     this.apiStatus.worldDataAccess = false;
+  //     this.apiStatus.isOnline = false; // ✅ Marquer comme offline si erreur
       
-      console.log(`❌ Erreur accès données mondiales: ${error.response?.status || error.message}`);
-      return [];
-    }
-  }
+  //     console.log(`❌ Erreur accès données mondiales: ${error.response?.status || error.message}`);
+  //     return [];
+  //   }
+  // }
   
+  async tryFetchWorldData() {
+  // ✅ Vérifier si le service est online
+  if (!this.apiStatus.isOnline) {
+    console.log('🔒 Service AirGradient offline - pas de récupération de données');
+    return [];
+  }
+
+  if (this.apiStatus.worldDataAccess === false) {
+    console.log('🔒 Accès données mondiales refusé - pas de données disponibles');
+    return [];
+  }
+
+  try {
+    console.log('🌍 Tentative de récupération des données mondiales...');
+
+    const response = await axios.get(`${this.baseURL}/world/locations/measures/current`, {
+      headers: this.getHeaders(),
+      params: this.getAuthParams(),
+      timeout: 15000
+    });
+
+    const worldData = response.data || [];
+    this.apiStatus.worldDataAccess = true;
+
+    console.log(`🌍 ${worldData.length} mesures mondiales récupérées avec succès`);
+
+    // 🔧 Normalisation & filtrage de TES capteurs
+    const yourSensorsData = worldData.filter((measurement) => {
+      const mSerial = this.normalizeSerial(measurement.serialno);
+
+      return this.sensorLocations.some((s) => {
+        const sSerial = this.normalizeSerial(s.serialNo);
+        const sSerialNumHex = s.serialNumeric
+          ? this.normalizeSerial(s.serialNumeric.toString(16))
+          : null;
+
+        const serialMatch =
+          (mSerial && sSerial && mSerial === sSerial) ||
+          (mSerial && sSerialNumHex && mSerial === sSerialNumHex);
+
+        const nameMatch =
+          s.name &&
+          measurement.locationName &&
+          (s.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
+           measurement.locationName.toLowerCase().includes(s.name.toLowerCase()));
+
+        return serialMatch || nameMatch;
+      });
+    });
+
+    console.log(`🇸🇳 ${yourSensorsData.length} de vos capteurs trouvés dans les données mondiales`);
+
+    // Log détaillé des capteurs trouvés (avec le même matching normalisé)
+    yourSensorsData.forEach((data) => {
+      const mSerial = this.normalizeSerial(data.serialno);
+
+      const sensor = this.sensorLocations.find((s) => {
+        const sSerial = this.normalizeSerial(s.serialNo);
+        const sSerialNumHex = s.serialNumeric
+          ? this.normalizeSerial(s.serialNumeric.toString(16))
+          : null;
+
+        const serialMatch =
+          (mSerial && sSerial && mSerial === sSerial) ||
+          (mSerial && sSerialNumHex && mSerial === sSerialNumHex);
+
+        const nameMatch =
+          s.name &&
+          data.locationName &&
+          (s.name.toLowerCase().includes(data.locationName.toLowerCase()) ||
+           data.locationName.toLowerCase().includes(s.name.toLowerCase()));
+
+        return serialMatch || nameMatch;
+      });
+
+      if (sensor) {
+        console.log(`📡 Données trouvées: ${sensor.name} (${data.serialno}) - PM2.5: ${data.pm02}`);
+      }
+    });
+
+    return yourSensorsData;
+
+  } catch (error) {
+    this.apiStatus.worldDataAccess = false;
+    this.apiStatus.isOnline = false; // ✅ Marquer comme offline si erreur
+
+    console.log(`❌ Erreur accès données mondiales: ${error.response?.status || error.message}`);
+    return [];
+  }
+}
+
   /**
    * ✅ MODIFIÉ: Récupération données réelles - pas de simulation si offline
    */
-  async fetchRealAirGradientData() {
-    try {
-      if (!this.apiKey) {
-        console.log('⚠️ Pas de clé API configurée - aucune donnée disponible');
-        return []; // ✅ Retourner vide au lieu de simuler
-      }
+  // async fetchRealAirGradientData() {
+  //   try {
+  //     if (!this.apiKey) {
+  //       console.log('⚠️ Pas de clé API configurée - aucune donnée disponible');
+  //       return []; // ✅ Retourner vide au lieu de simuler
+  //     }
 
-      console.log('🌍 Tentative de récupération des données réelles...');
+  //     console.log('🌍 Tentative de récupération des données réelles...');
       
-      // Essayer plusieurs endpoints
-      const endpoints = [
-        `${this.baseURL}/world/locations/measures/current`,
-        `${this.baseURL}/world/measures/current`,
-        `${this.baseURL}/locations/measures/current`,
-        `${this.baseURL}/measures/current`
-      ];
+  //     // Essayer plusieurs endpoints
+  //     const endpoints = [
+  //       `${this.baseURL}/world/locations/measures/current`,
+  //       `${this.baseURL}/world/measures/current`,
+  //       `${this.baseURL}/locations/measures/current`,
+  //       `${this.baseURL}/measures/current`
+  //     ];
 
-      for (const endpoint of endpoints) {
-        try {
-          console.log(`🔗 Test endpoint: ${endpoint}`);
+  //     for (const endpoint of endpoints) {
+  //       try {
+  //         console.log(`🔗 Test endpoint: ${endpoint}`);
           
-          const response = await axios.get(endpoint, {
-            headers: this.getHeaders(),
-            params: this.getAuthParams(),
-            timeout: 15000
-          });
+  //         const response = await axios.get(endpoint, {
+  //           headers: this.getHeaders(),
+  //           params: this.getAuthParams(),
+  //           timeout: 15000
+  //         });
 
-          if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-            console.log(`✅ ${response.data.length} mesures récupérées depuis ${endpoint}`);
-            this.apiStatus.isOnline = true; // ✅ Marquer comme online
-            return this.processRealData(response.data);
-          } else {
-            console.log(`⚠️ Endpoint ${endpoint} - pas de données`);
-          }
-        } catch (error) {
-          console.log(`❌ Endpoint ${endpoint} échoué: ${error.response?.status || error.message}`);
-          continue;
-        }
-      }
+  //         if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+  //           console.log(`✅ ${response.data.length} mesures récupérées depuis ${endpoint}`);
+  //           this.apiStatus.isOnline = true; // ✅ Marquer comme online
+  //           return this.processRealData(response.data);
+  //         } else {
+  //           console.log(`⚠️ Endpoint ${endpoint} - pas de données`);
+  //         }
+  //       } catch (error) {
+  //         console.log(`❌ Endpoint ${endpoint} échoué: ${error.response?.status || error.message}`);
+  //         continue;
+  //       }
+  //     }
 
-      // ✅ Si aucun endpoint ne fonctionne - PAS DE SIMULATION
-      console.log('❌ Aucune donnée réelle accessible - service offline');
-      this.apiStatus.isOnline = false;
-      return []; // ✅ Retourner vide au lieu de simuler
+  //     // ✅ Si aucun endpoint ne fonctionne - PAS DE SIMULATION
+  //     console.log('❌ Aucune donnée réelle accessible - service offline');
+  //     this.apiStatus.isOnline = false;
+  //     return []; // ✅ Retourner vide au lieu de simuler
 
-    } catch (error) {
-      console.error('❌ Erreur récupération données:', error.message);
-      this.apiStatus.isOnline = false;
-      return []; // ✅ Retourner vide au lieu de simuler
+  //   } catch (error) {
+  //     console.error('❌ Erreur récupération données:', error.message);
+  //     this.apiStatus.isOnline = false;
+  //     return []; // ✅ Retourner vide au lieu de simuler
+  //   }
+  // }
+  async fetchRealAirGradientData() {
+  try {
+    if (!this.apiKey) {
+      console.log('⚠️ Pas de clé API configurée - aucune donnée disponible');
+      return [];
     }
+
+    console.log('🌍 Tentative de récupération des données réelles...');
+    const endpoints = [
+      `${this.baseURL}/world/locations/measures/current`,
+      `${this.baseURL}/world/measures/current`,
+      `${this.baseURL}/locations/measures/current`,
+      `${this.baseURL}/measures/current`
+    ];
+
+    for (const endpoint of endpoints) {
+      try {
+        console.log(`🔗 Test endpoint: ${endpoint}`);
+        const response = await axios.get(endpoint, {
+          headers: this.getHeaders(),
+          params: this.getAuthParams(),
+          timeout: 15000
+        });
+
+        if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+          console.log(`✅ ${response.data.length} mesures récupérées depuis ${endpoint}`);
+          this.apiStatus.isOnline = true;
+
+          const processed = this.processRealData(response.data);
+          // 🎯 Si AirLight (165738) n’est pas dedans, on tentera par Location ID
+          const hasAirLight = processed.some(p => this.normalizeSerial(p.location.id) === 'd83bda1bbc9c');
+          if (hasAirLight) return processed;
+
+          // sinon on continue la boucle pour tenter d'autres endpoints
+          if (processed.length > 0) {
+            // on garde de côté mais on laisse encore une chance aux autres endpoints
+            var lastProcessed = processed;
+          }
+        } else {
+          console.log(`⚠️ Endpoint ${endpoint} - pas de données`);
+        }
+      } catch (error) {
+        console.log(`❌ Endpoint ${endpoint} échoué: ${error.response?.status || error.message}`);
+        continue;
+      }
+    }
+
+    // 🛟 Fallback final — essayer par Location IDs connues (ex: AirLight 165738)
+    const byLoc = await this.fetchByKnownLocationIds();
+    if (byLoc.length > 0) {
+      console.log(`✅ Fallback LocationID: ${byLoc.length} capteur(s) récupéré(s)`);
+      return byLoc;
+    }
+
+    // Sinon, si on avait déjà des données partielles, on renvoie ça
+    if (lastProcessed && lastProcessed.length > 0) return lastProcessed;
+
+    console.log('❌ Aucune donnée réelle accessible - service offline ou capteurs non présents dans world');
+    this.apiStatus.isOnline = false;
+    return [];
+  } catch (error) {
+    console.error('❌ Erreur récupération données:', error.message);
+    this.apiStatus.isOnline = false;
+    return [];
   }
+}
+
 
   /**
    * ✅ MODIFIÉ: Traiter les données réelles - pas de simulation pour les manquants
    */
+  // processRealData(worldData) {
+  //   const realSensorsData = [];
+
+  //   // Chercher SEULEMENT vos capteurs dans les données mondiales
+  //   for (const measurement of worldData) {
+  //     const sensor = this.sensorLocations.find(s => 
+  //       s.serialNo === measurement.serialno || 
+  //       s.serialNumeric === measurement.serialno ||
+  //       (s.name && measurement.locationName && 
+  //        (s.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
+  //         measurement.locationName.toLowerCase().includes(s.name.toLowerCase())))
+  //     );
+
+  //     if (sensor) {
+  //       realSensorsData.push({
+  //         location: {
+  //           id: sensor.serialNo,
+  //           name: sensor.name,
+  //           city: sensor.city,
+  //           country: sensor.country,
+  //           coordinates: sensor.coordinates
+  //         },
+  //         data: [this.normalizeRealData(measurement)]
+  //       });
+  //       console.log(`✅ Données réelles trouvées pour ${sensor.name} - PM2.5: ${measurement.pm02}`);
+  //     }
+  //   }
+
+  //   // ✅ PAS DE SIMULATION pour les capteurs manquants
+  //   console.log(`📊 Total: ${realSensorsData.length} capteurs avec données réelles (pas de simulation)`);
+  //   return realSensorsData;
+  // }
+
   processRealData(worldData) {
-    const realSensorsData = [];
+  const realSensorsData = [];
 
-    // Chercher SEULEMENT vos capteurs dans les données mondiales
-    for (const measurement of worldData) {
-      const sensor = this.sensorLocations.find(s => 
-        s.serialNo === measurement.serialno || 
-        s.serialNumeric === measurement.serialno ||
-        (s.name && measurement.locationName && 
-         (s.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
-          measurement.locationName.toLowerCase().includes(s.name.toLowerCase())))
-      );
+  for (const measurement of worldData) {
+    // serials normalisés
+    const mSerial = this.normalizeSerial(measurement.serialno);
 
-      if (sensor) {
-        realSensorsData.push({
-          location: {
-            id: sensor.serialNo,
-            name: sensor.name,
-            city: sensor.city,
-            country: sensor.country,
-            coordinates: sensor.coordinates
-          },
-          data: [this.normalizeRealData(measurement)]
-        });
-        console.log(`✅ Données réelles trouvées pour ${sensor.name} - PM2.5: ${measurement.pm02}`);
-      }
+    const sensor = this.sensorLocations.find((s) => {
+      const sSerial = this.normalizeSerial(s.serialNo);
+      // si tu as stocké un serialNumeric, on le compare en hex normalisé
+      const sSerialNumHex = s.serialNumeric
+        ? this.normalizeSerial(s.serialNumeric.toString(16))
+        : null;
+
+      const serialMatch =
+        (mSerial && sSerial && mSerial === sSerial) ||
+        (mSerial && sSerialNumHex && mSerial === sSerialNumHex);
+
+      // fallback nom: inchangé, juste en lower()
+      const nameMatch =
+        s.name &&
+        measurement.locationName &&
+        (s.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
+         measurement.locationName.toLowerCase().includes(s.name.toLowerCase()));
+
+      return serialMatch || nameMatch;
+    });
+
+    if (sensor) {
+      realSensorsData.push({
+        location: {
+          id: sensor.serialNo,
+          name: sensor.name,
+          city: sensor.city,
+          country: sensor.country,
+          coordinates: sensor.coordinates
+        },
+        data: [this.normalizeRealData(measurement)]
+      });
+      console.log(`✅ Données réelles trouvées pour ${sensor.name} - PM2.5: ${measurement.pm02}`);
     }
-
-    // ✅ PAS DE SIMULATION pour les capteurs manquants
-    console.log(`📊 Total: ${realSensorsData.length} capteurs avec données réelles (pas de simulation)`);
-    return realSensorsData;
   }
-  
+
+  console.log(`📊 Total: ${realSensorsData.length} capteurs avec données réelles (pas de simulation)`);
+  return realSensorsData;
+}
+
   /**
    * ✅ MODIFIÉ: Méthode principale - pas de simulation si offline
    */
@@ -525,6 +731,11 @@ class AirGradientService {
       source: 'real_api'
     };
   }
+//normalise le airgradiant 
+ normalizeSerial(value) {
+  if (value === undefined || value === null) return null;
+  return String(value).toLowerCase().replace(/^airgradient:/, '').replace(/^0x/, '');
+}
   
   transformDataForStorage(rawData, locationInfo) {
     if (!Array.isArray(rawData)) {

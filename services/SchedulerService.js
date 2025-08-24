@@ -74,78 +74,79 @@ class SchedulerService {
     console.log('✅ Scheduler initialisé avec succès (IA + Météo inclus)');
   }
 
-  // Job de synchronisation avec AirGradient - Toutes les 4 minutes
-  setupSyncJob() {
-    const job = cron.schedule('*/4 * * * *', async () => {
-      const started = Date.now();
-      this.addLog('info', '🔄 Début synchronisation AirGradient');
-
-      try {
-        console.log('🔄 Début synchronisation AirGradient...');
-        
-        const allSensorsData = await this.airGradientService.fetchAllSensorsData();
-        let savedCount = 0;
-        let alertCount = 0;
-        
-        for (const { location, data } of allSensorsData) {
-          try {
-            const transformedData = this.airGradientService.transformDataForStorage(data, location);
-            
-            for (const sensorReading of transformedData) {
-              const existingData = await SensorData.findOne({
+  // Job de synchronisation avec AirGradient - Toutes les  minutes
+  // Job de synchronisation avec AirGradient - Toutes les 45 secondes
+setupSyncJob() {
+  const job = cron.schedule('*/45 * * * * *', async () => {
+    const started = Date.now();
+    this.addLog('info', '🔄 Début synchronisation AirGradient');
+     
+    try {
+      console.log('🔄 Début synchronisation AirGradient...');
+               
+      const allSensorsData = await this.airGradientService.fetchAllSensorsData();
+      let savedCount = 0;
+      let alertCount = 0;
+               
+      for (const { location, data } of allSensorsData) {
+        try {
+          const transformedData = this.airGradientService.transformDataForStorage(data, location);
+                   
+          for (const sensorReading of transformedData) {
+            const existingData = await SensorData.findOne({
+              sensorId: sensorReading.sensorId,
+              timestamp: {
+                $gte: new Date(sensorReading.timestamp.getTime() - 5 * 60 * 1000),
+                $lte: new Date(sensorReading.timestamp.getTime() + 5 * 60 * 1000)
+              }
+            });
+                           
+            if (!existingData) {
+              const newData = new SensorData(sensorReading);
+              await newData.save();
+              savedCount++;
+                               
+              // Vérifier les alertes
+              const alerts = await this.alertService.checkAndCreateAlerts({
                 sensorId: sensorReading.sensorId,
-                timestamp: {
-                  $gte: new Date(sensorReading.timestamp.getTime() - 5 * 60 * 1000),
-                  $lte: new Date(sensorReading.timestamp.getTime() + 5 * 60 * 1000)
-                }
+                measurements: sensorReading.measurements,
+                location: sensorReading.location
               });
-              
-              if (!existingData) {
-                const newData = new SensorData(sensorReading);
-                await newData.save();
-                savedCount++;
-                
-                // Vérifier les alertes
-                const alerts = await this.alertService.checkAndCreateAlerts({
-                  sensorId: sensorReading.sensorId,
-                  measurements: sensorReading.measurements,
-                  location: sensorReading.location
+                               
+              if (alerts && alerts.length > 0) {
+                alertCount += alerts.length;
+                alerts.forEach(alert => {
+                  if (alert && alert._id) {
+                    triggerAlert(alert);
+                  }
                 });
-                
-                if (alerts && alerts.length > 0) {
-                  alertCount += alerts.length;
-                  alerts.forEach(alert => {
-                    if (alert && alert._id) {
-                      triggerAlert(alert);
-                    }
-                  });
-                }
               }
             }
-            
-          } catch (error) {
-            console.error(`❌ Erreur traitement ${location.name}:`, error.message);
-            this.addLog('error', `Erreur traitement ${location.name}`, { error: error.message });
           }
+                     
+        } catch (error) {
+          console.error(`❌ Erreur traitement ${location.name}:`, error.message);
+          this.addLog('error', `Erreur traitement ${location.name}`, { error: error.message });
         }
-        
-        console.log(`✅ Sync terminée: ${savedCount} nouveaux enregistrements, ${alertCount} alertes`);
-        this.addLog('info', '✅ Sync terminée', { duration_ms: Date.now() - started, savedCount, alertCount });
-        this.broadcastSystemUpdate();
-        
-      } catch (error) {
-        console.error('❌ Erreur synchronisation programmée:', error.message);
-        this.addLog('error', 'Erreur synchronisation programmée', { error: error.message });
       }
-    }, {
-      scheduled: false
-    });
-    
-    this.jobs.set('sync', job);
-    job.start();
-    this.addLog('info', '📅 Job synchronisation AirGradient programmé (toutes les 4 minutes)');
-    console.log('📅 Job synchronisation AirGradient programmé (toutes les 4 minutes)');
-  }
+               
+      console.log(`✅ Sync terminée: ${savedCount} nouveaux enregistrements, ${alertCount} alertes`);
+      this.addLog('info', '✅ Sync terminée', { duration_ms: Date.now() - started, savedCount, alertCount });
+      this.broadcastSystemUpdate();
+               
+    } catch (error) {
+      console.error('❌ Erreur synchronisation programmée:', error.message);
+      this.addLog('error', 'Erreur synchronisation programmée', { error: error.message });
+    }
+  }, {
+    scheduled: false
+  });
+       
+  this.jobs.set('sync', job);
+  job.start();
+  this.addLog('info', '📅 Job synchronisation AirGradient programmé (toutes les 45 secondes)');
+  console.log('📅 Job synchronisation AirGradient programmé (toutes les 45 secondes)');
+}
 
   // Job de génération de prédictions IA - Toutes les heures
   setupPredictionJob() {
