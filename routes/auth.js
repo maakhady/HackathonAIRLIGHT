@@ -64,21 +64,24 @@ router.get('/google',
 // GET /auth/google/callback - Callback Google OAuth
 router.get('/google/callback',
   passport.authenticate('google', { 
-    failureRedirect: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login?error=google_auth_failed` 
+    failureRedirect: `${process.env.FRONTEND_URL}/auth?error=google_auth_failed`,
+    session: false
   }),
   (req, res) => {
     try {
-      // L'utilisateur est dans req.user (retourné par la stratégie)
       const { user, token } = req.user;
       
-      // Rediriger vers le frontend avec le token
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      res.redirect(`${frontendUrl}/auth/callback?token=${token}&user=${encodeURIComponent(JSON.stringify(user))}`);
+      const encodedToken = encodeURIComponent(token);
+      const encodedUser = encodeURIComponent(JSON.stringify(user));
+      
+      // ✅ Utilise FRONTEND_URL depuis .env
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+      res.redirect(`${frontendUrl}/auth/callback?token=${encodedToken}&user=${encodedUser}`);
       
     } catch (error) {
-      console.error('❌ Erreur callback Google:', error.message);
-      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-      res.redirect(`${frontendUrl}/login?error=callback_error`);
+      console.error('❌ Erreur callback:', error.message);
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:4200';
+      res.redirect(`${frontendUrl}/auth?error=callback_error`);
     }
   }
 );

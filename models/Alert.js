@@ -1,4 +1,4 @@
-// models/Alert.js - Correction des index dupliqués
+// models/Alert.js - Version complète avec support météo
 const mongoose = require('mongoose');
 
 const AlertSchema = new mongoose.Schema({
@@ -22,7 +22,11 @@ const AlertSchema = new mongoose.Schema({
       'co2_high',
       'multi_pollutant',
       'maintenance_required',
-      'ai_service_down'
+      'ai_service_down',
+      'weather_air_quality',    // ✅ NOUVEAU
+      'weather_alert',           // ✅ NOUVEAU
+      'harmattan_warning',       // ✅ NOUVEAU
+      'wind_dispersion'          // ✅ NOUVEAU
     ]
   },
   severity: { 
@@ -36,7 +40,14 @@ const AlertSchema = new mongoose.Schema({
   },
   referenceStandard: {
     type: String,
-    enum: ['WHO_2021', 'EPA_2024', 'EU_2024'],
+    enum: [
+      'WHO_2021', 
+      'EPA_2024', 
+      'EU_2024',
+      'METEOROLOGICAL',          // ✅ NOUVEAU
+      'PREDICTED',               // ✅ NOUVEAU
+      'SENSOR_HEALTH'            // ✅ NOUVEAU
+    ],
     default: 'WHO_2021'
   },
   message: { 
@@ -81,9 +92,26 @@ const AlertSchema = new mongoose.Schema({
       trafficPeak: { type: Boolean, default: false },
       season: { 
         type: String, 
-        enum: ['dry_season', 'wet_season', 'harmattan'], // 🔧 CORRECTION: wet_season au lieu de rainy_season
+        enum: ['dry_season', 'wet_season', 'harmattan'],
         default: 'dry_season'
       }
+    },
+    
+    // ✅ NOUVEAU: Données météorologiques
+    weatherData: {
+      temperature: Number,
+      humidity: Number,
+      pressure: Number,
+      windSpeed: Number,
+      windDirection: Number,
+      weatherCondition: String,
+      weatherDescription: String,
+      visibility: Number,
+      cloudCover: Number,
+      uvIndex: Number,
+      airDispersionIndex: Number,
+      particulateSuspension: Number,
+      pollutantAccumulation: Number
     },
     
     aqiValues: {
@@ -114,14 +142,13 @@ const AlertSchema = new mongoose.Schema({
     offlineDuration: String
   },
   
-  // 🔧 CORRECTION: Retirer index: true pour éviter duplication
   location: {
     type: {
       type: String,
       enum: ['Point'],
       default: 'Point'
     },
-    coordinates: [Number], // Index créé séparément plus bas
+    coordinates: [Number],
     address: String,
     district: String,
     city: { type: String, default: 'Dakar' }
@@ -129,7 +156,6 @@ const AlertSchema = new mongoose.Schema({
   
   tags: [String],
   
-  // 🔧 CORRECTION: Retirer index: true pour éviter duplication
   expiresAt: {
     type: Date,
     default: function() {
@@ -143,7 +169,6 @@ const AlertSchema = new mongoose.Schema({
       const hours = hoursToAdd[this.severity] || 6;
       return new Date(Date.now() + hours * 60 * 60 * 1000);
     }
-    // Index TTL créé séparément plus bas
   },
   
   isActive: { 
@@ -168,19 +193,25 @@ const AlertSchema = new mongoose.Schema({
   }
 });
 
-// 🔧 CORRECTION: Index créés séparément pour éviter duplication
 // Index composés
 AlertSchema.index({ sensorId: 1, isActive: 1, severity: 1 });
 AlertSchema.index({ isActive: 1, createdAt: -1 });
 AlertSchema.index({ alertType: 1, isActive: 1 });
 AlertSchema.index({ severity: 1, createdAt: -1 });
 AlertSchema.index({ qualityLevel: 1, isActive: 1 });
-
-// Index géospatial (créé UNE SEULE FOIS)
 AlertSchema.index({ 'location.coordinates': '2dsphere' });
-
-// Index TTL pour expiration automatique (créé UNE SEULE FOIS)
 AlertSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+
+// ✅ NOUVEAUX index pour météo
+AlertSchema.index({ 
+  alertType: 1, 
+  'data.weatherData.windSpeed': 1, 
+  isActive: 1 
+});
+AlertSchema.index({ 
+  'data.environmentalContext.harmattan': 1, 
+  isActive: 1 
+});
 
 // Index pour recherche textuelle
 AlertSchema.index({ 
@@ -189,13 +220,10 @@ AlertSchema.index({
   tags: 'text'
 });
 
-// Index pour filtrage par capteur et période
 AlertSchema.index({ sensorId: 1, createdAt: -1 });
-
-// Index pour stats par région
 AlertSchema.index({ 'location.city': 1, 'location.district': 1, createdAt: -1 });
 
-// 🆕 Méthodes du schéma
+// Méthodes du schéma
 AlertSchema.methods.getHealthLevel = function() {
   const levels = ['good', 'moderate', 'poor', 'unhealthy', 'hazardous'];
   return levels.indexOf(this.severity);
@@ -213,7 +241,49 @@ AlertSchema.methods.getSensitiveGroups = function() {
   return this.data?.healthInfo?.sensitiveGroups || [];
 };
 
-// 🆕 Méthodes statiques pour recherche
+// ✅ NOUVELLES méthodes pour météo
+AlertSchema.methods.isWeatherAlert = function() {
+  return [
+    'weather_air_quality', 
+    'weather_alert', 
+    'harmattan_warning', 
+    'wind_dispersion'
+  ].includes(this.alertType);
+};
+
+AlertSchema.methods.getWeatherImpact = function() {
+  if (!this.data?.weatherData) return null;
+  
+  const weather = this.data.weatherData;
+  return {
+    dispersion: weather.airDispersionIndex || 0,
+    suspension: weather.particulateSuspension || 0,
+    accumulation: weather.pollutantAccumulation || 0,
+    overallImpact: this.calculateOverallWeatherImpact()
+  };
+};
+
+AlertSchema.methods.calculateOverallWeatherImpact = function() {
+  const weather = this.data?.weatherData;
+  if (!weather) return 0;
+  
+  let impact = 0;
+  
+  if (weather.windSpeed < 5) impact += 30;
+  else if (weather.windSpeed < 10) impact += 15;
+  
+  if (weather.humidity > 80) impact += 20;
+  else if (weather.humidity > 60) impact += 10;
+  
+  if (weather.pressure < 1010) impact += 20;
+  else if (weather.pressure < 1013) impact += 10;
+  
+  if (weather.temperature > 30 && weather.humidity > 60) impact += 20;
+  
+  return Math.min(impact, 100);
+};
+
+// Méthodes statiques
 AlertSchema.statics.findByHealthLevel = function(level, limit = 50) {
   return this.find({ 
     severity: level, 
@@ -227,6 +297,18 @@ AlertSchema.statics.findCriticalAlerts = function(hours = 24) {
   const startTime = new Date(Date.now() - hours * 60 * 60 * 1000);
   return this.find({
     severity: { $in: ['unhealthy', 'hazardous'] },
+    isActive: true,
+    createdAt: { $gte: startTime }
+  }).sort({ createdAt: -1 });
+};
+
+// ✅ NOUVELLE méthode statique pour alertes météo
+AlertSchema.statics.findActiveWeatherAlerts = function(hours = 24) {
+  const startTime = new Date(Date.now() - hours * 60 * 60 * 1000);
+  return this.find({
+    alertType: { 
+      $in: ['weather_air_quality', 'weather_alert', 'harmattan_warning', 'wind_dispersion'] 
+    },
     isActive: true,
     createdAt: { $gte: startTime }
   }).sort({ createdAt: -1 });
@@ -255,13 +337,11 @@ AlertSchema.statics.getHealthStats = function(sensorId, days = 7) {
   ]);
 };
 
-// Middleware pre-save pour validation
+// Middleware pre-save
 AlertSchema.pre('save', function(next) {
-  // Validation des seuils santé
   if (this.data?.pollutants?.pm25?.value) {
     const pm25 = this.data.pollutants.pm25.value;
     
-    // Vérifier cohérence niveau/valeur
     if (this.severity === 'good' && pm25 > 15) {
       return next(new Error('Valeur PM2.5 incohérente avec niveau "good"'));
     }
@@ -270,7 +350,6 @@ AlertSchema.pre('save', function(next) {
     }
   }
   
-  // Auto-définir qualityLevel si manquant
   if (!this.qualityLevel) {
     const qualityMap = {
       'good': 'excellent',
@@ -285,11 +364,15 @@ AlertSchema.pre('save', function(next) {
   next();
 });
 
-// Middleware post-save pour notifications
+// Middleware post-save
 AlertSchema.post('save', function(doc) {
   if (doc.isHealthCritical()) {
     console.log(`🚨 Alerte santé critique créée: ${doc.severity} - ${doc.message}`);
-    // Ici vous pourriez déclencher des notifications push, SMS, etc.
+  }
+  
+  // ✅ NOUVEAU: Log pour alertes météo
+  if (doc.isWeatherAlert()) {
+    console.log(`🌤️ Alerte météo créée: ${doc.alertType} - ${doc.message}`);
   }
 });
 

@@ -1,4 +1,4 @@
-// services/AirGradientService.js - SANS SIMULATION si offline/pas de données
+// services/AirGradientService.js - VERSION DEBUG + FIX MATCHING
 const axios = require('axios');
 
 class AirGradientService {
@@ -6,142 +6,127 @@ class AirGradientService {
     this.baseURL = 'https://api.airgradient.com/public/api/v1';
     this.apiKey = process.env.AIRGRADIENT_API_KEY;
     
-    // Liste complète des capteurs
     this.sensorLocations = [
       { 
         serialNo: 'd83bda1d43d8', 
         serialNumeric: parseInt('d83bda1d43d8', 16),
-        name: 'Breath4life', 
+        locationId: 164928,
+        name: 'Ecole Supérieure Multinationale des Télécommunications (ESMT)', 
         city: 'Dakar',
         country: 'SN',
-        coordinates: { lat: 14.6928, lng: -17.4467 }
+        coordinates: { lat: 14.700509233537487, lng: -17.450791143151584 }
       },
+      { 
+        serialNo: 'd83bda1ca05c', 
+        serialNumeric: parseInt('d83bda1ca05c', 16),
+        locationId: 168405,
+        name: 'Mairie Tivaoune Diacksao', 
+        city: 'Dakar',
+        country: 'SN',
+        coordinates: { lat: 14.7469647, lng: -17.3649319 }
+      },
+      
       { 
         serialNo: 'd83bda1ae490', 
         serialNumeric: parseInt('d83bda1ae490', 16),
-        name: 'École Élémentaire Ndiangué, Richard-Toll', 
+        locationId: 90106,
+        name: 'Ecole Elémentaire Ndiangué, Richard-Toll', 
         city: 'Richard-Toll',
         country: 'SN',
         coordinates: { lat: 16.4617, lng: -15.7014 }
       },
       { 
-        serialNo: '34b7da12e68c', 
-        serialNumeric: parseInt('34b7da12e68c', 16),
-        name: 'École Elhadj Mbaye Diop (Multimedia), Ouakam, Dakar', 
+        serialNo: '588c8126653c', 
+        serialNumeric: parseInt('588c8126653c', 16),
+        locationId: 168371,
+        name: 'Diaksao, Ecole Mbaye Diouf', 
         city: 'Dakar',
         country: 'SN',
-        coordinates: { lat: 14.7167, lng: -17.4833 },
-        type: 'indoor'
-      },
-      { 
-        serialNo: '34b7da9fed44', 
-        serialNumeric: parseInt('34b7da9fed44', 16),
-        name: 'École Notre Dame des Victoires, Diourbel', 
-        city: 'Diourbel',
-        country: 'SN',
-        coordinates: { lat: 14.6522, lng: -16.2317 }
-      },
-      { 
-        serialNo: '34b7daa1e1b0', 
-        serialNumeric: parseInt('34b7daa1e1b0', 16),
-        name: 'Université de Thiès', 
-        city: 'Thiès',
-        country: 'SN',
-        coordinates: { lat: 14.7886, lng: -16.9239 }
+        coordinates: { lat: 14.7537687, lng: -17.3715799 }
       },
       { 
         serialNo: '34b7daa1e7f4', 
         serialNumeric: parseInt('34b7daa1e7f4', 16),
+        locationId: 151722,
         name: 'Lycée Cheikh Mouhamadou Moustapha Mbacké, Diourbel', 
         city: 'Diourbel',
         country: 'SN',
-        coordinates: { lat: 14.6522, lng: -16.2317 }
+        coordinates: { lat: 14.6616754, lng: -16.2341494 }
       },
       { 
-        serialNo: '744dbdbecb74', 
-        serialNumeric: parseInt('744dbdbecb74', 16),
-        name: 'Lycée Technique André Peytavin, Saint-Louis', 
-        city: 'Saint-Louis',
+        serialNo: 'd83bda1a3268', 
+        serialNumeric: parseInt('d83bda1a3268', 16),
+        locationId: 168377,
+        name: 'Lycée Malick Sy', 
+        city: 'Thiès',
         country: 'SN',
-        coordinates: { lat: 16.0378, lng: -16.4889 }
+        coordinates: { lat: 14.7843856, lng: -16.9421245 }      
       },
       { 
-        serialNo: '744dbdbfbda4', 
-        serialNumeric: parseInt('744dbdbfbda4', 16),
-        name: 'Lycée de Bargny, Rufisque', 
+        serialNo: 'd83bda1c8dec', 
+        serialNumeric: parseInt('d83bda1c8dec', 16),
+        locationId: 176743,
+        name: 'Hôpital Youssou Mbarguane', 
         city: 'Rufisque',
         country: 'SN',
-        coordinates: { lat: 14.7672, lng: -17.2008 }
+        coordinates: { lat: 14.725899, lng: -17.259361 }
       },
       { 
-        serialNo: '744dbdc13e64', 
-        serialNumeric: parseInt('744dbdc13e64', 16),
-        name: 'Station de référence, Pikine', 
-        city: 'Pikine',
+        serialNo: 'd83bda1c49d8', 
+        serialNumeric: parseInt('d83bda1c49d8', 16),
+        locationId: 168391,
+        name: 'Cem Guinaw Rails', 
+        city: 'Saint-Louis',
         country: 'SN',
-        coordinates: { lat: 14.7547, lng: -17.3906 }
+        coordinates: { lat: 16.0326307, lng: -16.4843916 }
       },
       { 
-        serialNo: 'd83bda1c03bc', 
-        serialNumeric: parseInt('d83bda1c03bc', 16),
-        name: 'SunuAir', 
-        city: 'Dakar',
+        serialNo: '588c81266ba0', 
+        serialNumeric: parseInt('588c81266ba0', 16),
+        locationId: 168369,
+        name: 'Ecole Publique Médina Gana Sarr, Mbeubeuss', 
+        city: 'Keur Massar',
         country: 'SN',
-        coordinates: { lat: 14.6928, lng: -17.4467 }
+        coordinates: { lat: 14.7920809, lng: -17.3125511 }
       },
       { 
-        serialNo: 'd83bda1bbc9c',
-        serialNumeric: parseInt('d83bda1bbc9c', 16),
-        locationId: 165738, 
-        name: 'AirLight', 
+        serialNo: 'd83bda1d5b18', 
+        serialNumeric: parseInt('d83bda1d5b18', 16),
+        locationId: 168381,
+        name: 'École Seydina Issa Laye B, Cambérène', 
         city: 'Dakar',
         country: 'SN',
-        coordinates: { lat: 14.6928, lng: -17.4467 }
+        coordinates: { lat: 14.7668852, lng: -17.4357236 }
+      },
+      { 
+        serialNo: 'd83bda1a182c', 
+        serialNumeric: parseInt('d83bda1a182c', 16),
+        locationId: 168395,
+        name: 'Complexe Scolaire Limamoulaye', 
+        city: 'Dakar',
+        country: 'SN',
+        coordinates: { lat: 14.7741435, lng: -17.3578561 }
+      },
+      { 
+        serialNo: 'd83bda1d7598',
+        serialNumeric: parseInt('d83bda1d7598', 16),
+        locationId: 168406, 
+        name: 'Lycée Ahoune Sané, Bignona', 
+        city: 'Ziguinchor',
+        country: 'SN',
+        coordinates: { lat: 12.8098094, lng: -16.2287692 }
       },
       {
-        serialNo: '34b7dabd9240',
-        serialNumeric: parseInt('34b7dabd9240', 16),
-        name: 'kaikai_office(indoor)',
-        city: 'Dakar',
+        serialNo: 'ccba97e1d91c',
+        serialNumeric: parseInt('ccba97e1d91c', 16),
+        locationId: 168372,
+        name: 'Université Amadou Mahtar Mbow (UAM)',
+        city: 'Diamniadio',
         country: 'SN',
-        coordinates: { lat: 14.6928, lng: -17.4467 },
-        type: 'indoor'
-      },
-      {
-        serialNo: '34b7dad310ac',
-        serialNumeric: parseInt('34b7dad310ac', 16),
-        name: 'École Elhadj Mbaye Diop, Ouakam, Dakar',
-        city: 'Dakar',
-        country: 'SN',
-        coordinates: { lat: 14.7167, lng: -17.4833 }
-      },
-      {
-        serialNo: '744dbdc131f0',
-        serialNumeric: parseInt('744dbdc131f0', 16),
-        name: 'kaikai test',
-        city: 'Dakar',
-        country: 'SN',
-        coordinates: { lat: 14.6928, lng: -17.4467 }
-      },
-      {
-        serialNo: 'd83bda1c03bc',
-        serialNumeric: parseInt('d83bda1c03bc', 16),
-        name: 'SunuAir',
-        city: 'Dakar',
-        country: 'SN',
-        coordinates: { lat: 14.6928, lng: -17.4467 }
-      },
-      {
-        serialNo: '34b7da14e004',
-        serialNumeric: parseInt('34b7da14e004', 16),
-        name: 'École Elhadj Mbaye Diop Test',
-        city: 'Dakar',
-        country: 'SN',
-        coordinates: { lat: 14.7167, lng: -17.4833 }
+        coordinates: { lat: 14.7343814, lng: -17.2008171 }
       }
     ];
     
-    // Supprimer les doublons
     this.sensorLocations = this.sensorLocations.filter((sensor, index, self) =>
       index === self.findIndex(s => s.serialNo === sensor.serialNo)
     );
@@ -150,10 +135,10 @@ class AirGradientService {
       worldDataAccess: null,
       individualAccess: null,
       lastChecked: null,
-      isOnline: false // ✅ NOUVEAU: Tracker si AirGradient est online
+      isOnline: false
     };
     
-    console.log(`🇸🇳 Service AirGradient initialisé avec ${this.sensorLocations.length} capteurs uniques du Sénégal`);
+    console.log(`* Service AirGradient initialisé avec ${this.sensorLocations.length} capteurs uniques du Sénégal`);
   }
   
   getHeaders() {
@@ -173,9 +158,6 @@ class AirGradientService {
     };
   }
   
-  /**
-   * ✅ Test de connexion - Marque le service comme online/offline
-   */
   async testAPIConnection() {
     try {
       if (!this.apiKey) {
@@ -190,302 +172,82 @@ class AirGradientService {
       
       console.log('🔌 Test de connexion AirGradient...');
       
-      // Test ping de base
       try {
-        await axios.get(`${this.baseURL}/ping`, {
-          headers: this.getHeaders(),
-          params: this.getAuthParams(),
-          timeout: 10000
-        });
-        
-        console.log('✅ Ping API réussi');
-        this.apiStatus.isOnline = true; // ✅ Marquer comme online
-        
-      } catch (pingError) {
-        console.log('❌ Ping API échoué:', pingError.response?.status || pingError.message);
-        this.apiStatus.isOnline = false; // ✅ Marquer comme offline
-        return { 
-          success: false, 
-          error: 'API non accessible',
-          details: pingError.response?.status || pingError.message
-        };
-      }
-      
-      // Test accès données mondiales
-      try {
-        const worldResponse = await axios.get(`${this.baseURL}/world/locations/measures/current`, {
+        const response = await axios.get(`${this.baseURL}/world/locations/measures/current`, {
           headers: this.getHeaders(),
           params: this.getAuthParams(),
           timeout: 15000
         });
         
+        console.log('✅ API accessible');
+        this.apiStatus.isOnline = true;
         this.apiStatus.worldDataAccess = true;
-        console.log(`✅ Accès données mondiales: ${worldResponse.data?.length || 0} mesures`);
+        console.log(`✅ Accès données mondiales: ${response.data?.length || 0} mesures`);
         
-      } catch (worldError) {
+        this.apiStatus.lastChecked = new Date();
+        
+        return { 
+          success: true, 
+          status: 200,
+          worldDataAccess: true,
+          isOnline: true,
+          sensorsConfigured: this.sensorLocations.length,
+          totalMeasures: response.data?.length || 0,
+          message: 'API complètement accessible'
+        };
+        
+      } catch (apiError) {
+        this.apiStatus.isOnline = false;
         this.apiStatus.worldDataAccess = false;
         
-        if (worldError.response?.status === 401) {
-          console.log('🔒 Accès données mondiales: 401 Unauthorized');
-        } else if (worldError.response?.status === 403) {
-          console.log('🔒 Accès données mondiales: 403 Forbidden');
+        if (apiError.response?.status === 401) {
+          console.log('❌ Erreur 401: Token invalide ou manquant');
+          return {
+            success: false,
+            error: 'Authentication failed',
+            status: 401,
+            message: 'Vérifiez votre token AIRGRADIENT_API_KEY'
+          };
+        } else if (apiError.response?.status === 404) {
+          console.log('❌ Erreur 404: Aucune donnée disponible');
+          return {
+            success: false,
+            error: 'No data available',
+            status: 404
+          };
         } else {
-          console.log(`⚠️ Accès données mondiales: ${worldError.response?.status || 'Erreur réseau'}`);
+          console.log(`❌ Erreur API: ${apiError.response?.status || apiError.message}`);
+          return {
+            success: false,
+            error: apiError.message,
+            status: apiError.response?.status
+          };
         }
       }
       
-      this.apiStatus.lastChecked = new Date();
-      
-      return { 
-        success: true, 
-        status: 200,
-        worldDataAccess: this.apiStatus.worldDataAccess,
-        isOnline: this.apiStatus.isOnline,
-        sensorsConfigured: this.sensorLocations.length,
-        message: this.apiStatus.worldDataAccess 
-          ? 'API complètement accessible' 
-          : 'API accessible mais données mondiales restreintes'
-      };
-      
     } catch (error) {
-      this.apiStatus.isOnline = false; // ✅ Marquer comme offline en cas d'erreur
+      this.apiStatus.isOnline = false;
       return { 
         success: false, 
-        error: error.response?.data || error.message,
+        error: error.message,
         isOnline: false
       };
     }
   }
   
-  /**
-   * ✅ MODIFIÉ: Récupération données mondiales - retourne vide si offline
-   */
-  // async tryFetchWorldData() {
-  //   // ✅ NOUVEAU: Vérifier si le service est online
-  //   if (!this.apiStatus.isOnline) {
-  //     console.log('🔒 Service AirGradient offline - pas de récupération de données');
-  //     return [];
-  //   }
-    
-  //   if (this.apiStatus.worldDataAccess === false) {
-  //     console.log('🔒 Accès données mondiales refusé - pas de données disponibles');
-  //     return [];
-  //   }
-    
-  //   try {
-  //     console.log('🌍 Tentative de récupération des données mondiales...');
-      
-  //     const response = await axios.get(`${this.baseURL}/world/locations/measures/current`, {
-  //       headers: this.getHeaders(),
-  //       params: this.getAuthParams(),
-  //       timeout: 15000
-  //     });
-      
-  //     const worldData = response.data || [];
-  //     this.apiStatus.worldDataAccess = true;
-      
-  //     console.log(`🌍 ${worldData.length} mesures mondiales récupérées avec succès`);
-      
-  //     // Chercher vos capteurs dans les données mondiales
-  //     const yourSensorsData = worldData.filter(measurement => {
-  //       return this.sensorLocations.some(sensor => {
-  //         const serialMatch = sensor.serialNo === measurement.serialno || 
-  //                            sensor.serialNumeric === measurement.serialno;
-          
-  //         const nameMatch = sensor.name && measurement.locationName &&
-  //                          (sensor.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
-  //                           measurement.locationName.toLowerCase().includes(sensor.name.toLowerCase()));
-          
-  //         return serialMatch || nameMatch;
-  //       });
-  //     });
-      
-  //     console.log(`🇸🇳 ${yourSensorsData.length} de vos capteurs trouvés dans les données mondiales`);
-      
-  //     // Log détaillé des capteurs trouvés
-  //     yourSensorsData.forEach(data => {
-  //       const sensor = this.sensorLocations.find(s => 
-  //         s.serialNo === data.serialno || s.serialNumeric === data.serialno
-  //       );
-  //       if (sensor) {
-  //         console.log(`📡 Données trouvées: ${sensor.name} (${data.serialno}) - PM2.5: ${data.pm02}`);
-  //       }
-  //     });
-      
-  //     return yourSensorsData;
-      
-  //   } catch (error) {
-  //     this.apiStatus.worldDataAccess = false;
-  //     this.apiStatus.isOnline = false; // ✅ Marquer comme offline si erreur
-      
-  //     console.log(`❌ Erreur accès données mondiales: ${error.response?.status || error.message}`);
-  //     return [];
-  //   }
-  // }
-  
-  async tryFetchWorldData() {
-  // ✅ Vérifier si le service est online
-  if (!this.apiStatus.isOnline) {
-    console.log('🔒 Service AirGradient offline - pas de récupération de données');
-    return [];
-  }
-
-  if (this.apiStatus.worldDataAccess === false) {
-    console.log('🔒 Accès données mondiales refusé - pas de données disponibles');
-    return [];
-  }
-
-  try {
-    console.log('🌍 Tentative de récupération des données mondiales...');
-
-    const response = await axios.get(`${this.baseURL}/world/locations/measures/current`, {
-      headers: this.getHeaders(),
-      params: this.getAuthParams(),
-      timeout: 15000
-    });
-
-    const worldData = response.data || [];
-    this.apiStatus.worldDataAccess = true;
-
-    console.log(`🌍 ${worldData.length} mesures mondiales récupérées avec succès`);
-
-    // 🔧 Normalisation & filtrage de TES capteurs
-    const yourSensorsData = worldData.filter((measurement) => {
-      const mSerial = this.normalizeSerial(measurement.serialno);
-
-      return this.sensorLocations.some((s) => {
-        const sSerial = this.normalizeSerial(s.serialNo);
-        const sSerialNumHex = s.serialNumeric
-          ? this.normalizeSerial(s.serialNumeric.toString(16))
-          : null;
-
-        const serialMatch =
-          (mSerial && sSerial && mSerial === sSerial) ||
-          (mSerial && sSerialNumHex && mSerial === sSerialNumHex);
-
-        const nameMatch =
-          s.name &&
-          measurement.locationName &&
-          (s.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
-           measurement.locationName.toLowerCase().includes(s.name.toLowerCase()));
-
-        return serialMatch || nameMatch;
-      });
-    });
-
-    console.log(`🇸🇳 ${yourSensorsData.length} de vos capteurs trouvés dans les données mondiales`);
-
-    // Log détaillé des capteurs trouvés (avec le même matching normalisé)
-    yourSensorsData.forEach((data) => {
-      const mSerial = this.normalizeSerial(data.serialno);
-
-      const sensor = this.sensorLocations.find((s) => {
-        const sSerial = this.normalizeSerial(s.serialNo);
-        const sSerialNumHex = s.serialNumeric
-          ? this.normalizeSerial(s.serialNumeric.toString(16))
-          : null;
-
-        const serialMatch =
-          (mSerial && sSerial && mSerial === sSerial) ||
-          (mSerial && sSerialNumHex && mSerial === sSerialNumHex);
-
-        const nameMatch =
-          s.name &&
-          data.locationName &&
-          (s.name.toLowerCase().includes(data.locationName.toLowerCase()) ||
-           data.locationName.toLowerCase().includes(s.name.toLowerCase()));
-
-        return serialMatch || nameMatch;
-      });
-
-      if (sensor) {
-        console.log(`📡 Données trouvées: ${sensor.name} (${data.serialno}) - PM2.5: ${data.pm02}`);
-      }
-    });
-
-    return yourSensorsData;
-
-  } catch (error) {
-    this.apiStatus.worldDataAccess = false;
-    this.apiStatus.isOnline = false; // ✅ Marquer comme offline si erreur
-
-    console.log(`❌ Erreur accès données mondiales: ${error.response?.status || error.message}`);
-    return [];
-  }
-}
-
-  /**
-   * ✅ MODIFIÉ: Récupération données réelles - pas de simulation si offline
-   */
-  // async fetchRealAirGradientData() {
-  //   try {
-  //     if (!this.apiKey) {
-  //       console.log('⚠️ Pas de clé API configurée - aucune donnée disponible');
-  //       return []; // ✅ Retourner vide au lieu de simuler
-  //     }
-
-  //     console.log('🌍 Tentative de récupération des données réelles...');
-      
-  //     // Essayer plusieurs endpoints
-  //     const endpoints = [
-  //       `${this.baseURL}/world/locations/measures/current`,
-  //       `${this.baseURL}/world/measures/current`,
-  //       `${this.baseURL}/locations/measures/current`,
-  //       `${this.baseURL}/measures/current`
-  //     ];
-
-  //     for (const endpoint of endpoints) {
-  //       try {
-  //         console.log(`🔗 Test endpoint: ${endpoint}`);
-          
-  //         const response = await axios.get(endpoint, {
-  //           headers: this.getHeaders(),
-  //           params: this.getAuthParams(),
-  //           timeout: 15000
-  //         });
-
-  //         if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-  //           console.log(`✅ ${response.data.length} mesures récupérées depuis ${endpoint}`);
-  //           this.apiStatus.isOnline = true; // ✅ Marquer comme online
-  //           return this.processRealData(response.data);
-  //         } else {
-  //           console.log(`⚠️ Endpoint ${endpoint} - pas de données`);
-  //         }
-  //       } catch (error) {
-  //         console.log(`❌ Endpoint ${endpoint} échoué: ${error.response?.status || error.message}`);
-  //         continue;
-  //       }
-  //     }
-
-  //     // ✅ Si aucun endpoint ne fonctionne - PAS DE SIMULATION
-  //     console.log('❌ Aucune donnée réelle accessible - service offline');
-  //     this.apiStatus.isOnline = false;
-  //     return []; // ✅ Retourner vide au lieu de simuler
-
-  //   } catch (error) {
-  //     console.error('❌ Erreur récupération données:', error.message);
-  //     this.apiStatus.isOnline = false;
-  //     return []; // ✅ Retourner vide au lieu de simuler
-  //   }
-  // }
   async fetchRealAirGradientData() {
-  try {
-    if (!this.apiKey) {
-      console.log('⚠️ Pas de clé API configurée - aucune donnée disponible');
-      return [];
-    }
+    try {
+      if (!this.apiKey) {
+        console.log(' Pas de clé API configurée - aucune donnée disponible');
+        return [];
+      }
 
-    console.log('🌍 Tentative de récupération des données réelles...');
-    const endpoints = [
-      `${this.baseURL}/world/locations/measures/current`,
-      `${this.baseURL}/world/measures/current`,
-      `${this.baseURL}/locations/measures/current`,
-      `${this.baseURL}/measures/current`
-    ];
+      console.log(' Tentative de récupération des données réelles...');
+      
+      const endpoint = `${this.baseURL}/world/locations/measures/current`;
 
-    for (const endpoint of endpoints) {
       try {
-        console.log(`🔗 Test endpoint: ${endpoint}`);
+        console.log(`🔗 Appel API: ${endpoint}`);
         const response = await axios.get(endpoint, {
           headers: this.getHeaders(),
           params: this.getAuthParams(),
@@ -493,114 +255,149 @@ class AirGradientService {
         });
 
         if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-          console.log(`✅ ${response.data.length} mesures récupérées depuis ${endpoint}`);
-          this.apiStatus.isOnline = true;
-
-          const processed = this.processRealData(response.data);
-          // 🎯 Si AirLight (165738) n’est pas dedans, on tentera par Location ID
-          const hasAirLight = processed.some(p => this.normalizeSerial(p.location.id) === 'd83bda1bbc9c');
-          if (hasAirLight) return processed;
-
-          // sinon on continue la boucle pour tenter d'autres endpoints
-          if (processed.length > 0) {
-            // on garde de côté mais on laisse encore une chance aux autres endpoints
-            var lastProcessed = processed;
+          console.log(`✅ ${response.data.length} mesures récupérées depuis l'API`);
+          
+          let processed = this.processRealData(response.data);
+          
+          // ✅ NOUVEAU : Pour les capteurs offline, essayer l'endpoint individuel
+          const offlineSensors = processed.filter(s => s.status === 'offline');
+          
+          if (offlineSensors.length > 0) {
+            console.log(` Tentative récupération individuelle pour ${offlineSensors.length} capteur(s) offline...`);
+            
+            for (const offlineSensor of offlineSensors) {
+              try {
+                const sensor = this.sensorLocations.find(s => s.serialNo === offlineSensor.location.id);
+                if (!sensor || !sensor.locationId) continue;
+                
+                const url = `${this.baseURL}/locations/${sensor.locationId}/measures/current`;
+                const individualResponse = await axios.get(url, {
+                  headers: this.getHeaders(),
+                  params: this.getAuthParams(),
+                  timeout: 10000
+                });
+                
+                if (individualResponse.data) {
+                  const data = Array.isArray(individualResponse.data) 
+                    ? individualResponse.data[0] 
+                    : individualResponse.data;
+                  
+                  const index = processed.findIndex(s => s.location.id === sensor.serialNo);
+                  if (index !== -1) {
+                    // ✅ Utiliser le champ 'offline' de l'API (plus fiable)
+                    const isOnline = data.offline === false;
+                    
+                    if (isOnline) {
+                      // Capteur vraiment online
+                      processed[index] = {
+                        location: offlineSensor.location,
+                        data: [this.normalizeRealData(data)],
+                        status: 'online'
+                      };
+                      console.log(`✅ ${sensor.name} - PM2.5: ${data.pm02 !== null ? data.pm02 : 'N/A'}`);
+                    } else {
+                      // Capteur vraiment offline selon l'API
+                      console.log(`⚠️  ${sensor.name} - OFFLINE (API offline=true)`);
+                      // Garder status: 'offline' et data: null
+                    }
+                  }
+                }
+              } catch (error) {
+                // Garder offline
+                continue;
+              }
+              
+              // Attendre un peu entre les requêtes
+              await new Promise(resolve => setTimeout(resolve, 500));
+            }
           }
-        } else {
-          console.log(`⚠️ Endpoint ${endpoint} - pas de données`);
+          
+          if (processed.length > 0) {
+            this.apiStatus.isOnline = true;
+            const onlineCount = processed.filter(s => s.status === 'online').length;
+            const offlineCount = processed.filter(s => s.status === 'offline').length;
+            console.log(`✅ Résultat final: ${onlineCount} en ligne, ${offlineCount} offline (${processed.length} capteurs au total)`);
+            return processed;
+          }
         }
       } catch (error) {
-        console.log(`❌ Endpoint ${endpoint} échoué: ${error.response?.status || error.message}`);
+        if (error.response?.status === 401) {
+          console.log(`❌ Erreur 401: Token invalide ou expiré`);
+          console.log(`💡 Vérifiez votre AIRGRADIENT_API_KEY: ${this.apiKey?.substring(0, 8)}...`);
+        } else if (error.response?.status === 404) {
+          console.log(`❌ Erreur 404: Aucune donnée disponible`);
+        } else {
+          console.log(`❌ Erreur API: ${error.response?.status || error.message}`);
+        }
+        
+        this.apiStatus.isOnline = false;
+        return [];
+      }
+
+      console.log('❌ Aucune donnée accessible');
+      this.apiStatus.isOnline = false;
+      return [];
+      
+    } catch (error) {
+      console.error('❌ Erreur récupération données:', error.message);
+      return [];
+    }
+  }
+
+  processRealData(worldData) {
+    const realSensorsData = [];
+    const foundLocationIds = new Set();
+
+    console.log('🔍 Matching par locationId (pas de serial dans l\'API)');
+
+    for (const measurement of worldData) {
+      // ✅ Ignorer si pas de locationId
+      if (!measurement.locationId) {
         continue;
+      }
+
+      // ✅ Éviter doublons
+      if (foundLocationIds.has(measurement.locationId)) {
+        continue;
+      }
+
+      // ✅ MATCH UNIQUEMENT PAR LOCATIONID
+      const sensor = this.sensorLocations.find(s => 
+        s.locationId && s.locationId === measurement.locationId
+      );
+
+      if (sensor) {
+        foundLocationIds.add(measurement.locationId);
+        
+        // ✅ Vérifier le statut offline de l'API
+        const isOnline = measurement.offline === false;
+        
+        realSensorsData.push({
+          location: {
+            id: sensor.serialNo,
+            name: sensor.name,
+            city: sensor.city,
+            country: sensor.country,
+            coordinates: sensor.coordinates
+          },
+          data: isOnline ? [this.normalizeRealData(measurement)] : null,
+          status: isOnline ? 'online' : 'offline'
+        });
+        
+        if (isOnline) {
+          console.log(`✅ ${sensor.name} - PM2.5: ${measurement.pm02 !== null ? measurement.pm02 : 'N/A'} (locationId: ${measurement.locationId})`);
+        } else {
+          console.log(`⚠️  ${sensor.name} - OFFLINE selon API (locationId: ${measurement.locationId})`);
+        }
       }
     }
 
-    // 🛟 Fallback final — essayer par Location IDs connues (ex: AirLight 165738)
-    const byLoc = await this.fetchByKnownLocationIds();
-    if (byLoc.length > 0) {
-      console.log(`✅ Fallback LocationID: ${byLoc.length} capteur(s) récupéré(s)`);
-      return byLoc;
-    }
+    // ✅ Ajouter les capteurs non trouvés comme offline
+    const missingSensors = this.sensorLocations.filter(s => 
+      s.locationId && !foundLocationIds.has(s.locationId)
+    );
 
-    // Sinon, si on avait déjà des données partielles, on renvoie ça
-    if (lastProcessed && lastProcessed.length > 0) return lastProcessed;
-
-    console.log('❌ Aucune donnée réelle accessible - service offline ou capteurs non présents dans world');
-    this.apiStatus.isOnline = false;
-    return [];
-  } catch (error) {
-    console.error('❌ Erreur récupération données:', error.message);
-    this.apiStatus.isOnline = false;
-    return [];
-  }
-}
-
-
-  /**
-   * ✅ MODIFIÉ: Traiter les données réelles - pas de simulation pour les manquants
-   */
-  // processRealData(worldData) {
-  //   const realSensorsData = [];
-
-  //   // Chercher SEULEMENT vos capteurs dans les données mondiales
-  //   for (const measurement of worldData) {
-  //     const sensor = this.sensorLocations.find(s => 
-  //       s.serialNo === measurement.serialno || 
-  //       s.serialNumeric === measurement.serialno ||
-  //       (s.name && measurement.locationName && 
-  //        (s.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
-  //         measurement.locationName.toLowerCase().includes(s.name.toLowerCase())))
-  //     );
-
-  //     if (sensor) {
-  //       realSensorsData.push({
-  //         location: {
-  //           id: sensor.serialNo,
-  //           name: sensor.name,
-  //           city: sensor.city,
-  //           country: sensor.country,
-  //           coordinates: sensor.coordinates
-  //         },
-  //         data: [this.normalizeRealData(measurement)]
-  //       });
-  //       console.log(`✅ Données réelles trouvées pour ${sensor.name} - PM2.5: ${measurement.pm02}`);
-  //     }
-  //   }
-
-  //   // ✅ PAS DE SIMULATION pour les capteurs manquants
-  //   console.log(`📊 Total: ${realSensorsData.length} capteurs avec données réelles (pas de simulation)`);
-  //   return realSensorsData;
-  // }
-
-  processRealData(worldData) {
-  const realSensorsData = [];
-
-  for (const measurement of worldData) {
-    // serials normalisés
-    const mSerial = this.normalizeSerial(measurement.serialno);
-
-    const sensor = this.sensorLocations.find((s) => {
-      const sSerial = this.normalizeSerial(s.serialNo);
-      // si tu as stocké un serialNumeric, on le compare en hex normalisé
-      const sSerialNumHex = s.serialNumeric
-        ? this.normalizeSerial(s.serialNumeric.toString(16))
-        : null;
-
-      const serialMatch =
-        (mSerial && sSerial && mSerial === sSerial) ||
-        (mSerial && sSerialNumHex && mSerial === sSerialNumHex);
-
-      // fallback nom: inchangé, juste en lower()
-      const nameMatch =
-        s.name &&
-        measurement.locationName &&
-        (s.name.toLowerCase().includes(measurement.locationName.toLowerCase()) ||
-         measurement.locationName.toLowerCase().includes(s.name.toLowerCase()));
-
-      return serialMatch || nameMatch;
-    });
-
-    if (sensor) {
+    missingSensors.forEach(sensor => {
       realSensorsData.push({
         location: {
           id: sensor.serialNo,
@@ -609,56 +406,48 @@ class AirGradientService {
           country: sensor.country,
           coordinates: sensor.coordinates
         },
-        data: [this.normalizeRealData(measurement)]
+        data: null,
+        status: 'offline'
       });
-      console.log(`✅ Données réelles trouvées pour ${sensor.name} - PM2.5: ${measurement.pm02}`);
-    }
+      console.log(`⚠️  ${sensor.name} - OFFLINE (non trouvé dans API) (locationId: ${sensor.locationId})`);
+    });
+
+    const onlineCount = realSensorsData.filter(s => s.status === 'online').length;
+    const offlineCount = realSensorsData.filter(s => s.status === 'offline').length;
+    
+    console.log(`📊 Total: ${onlineCount}/${this.sensorLocations.length} en ligne, ${offlineCount} offline`);
+    
+    return realSensorsData;
   }
 
-  console.log(`📊 Total: ${realSensorsData.length} capteurs avec données réelles (pas de simulation)`);
-  return realSensorsData;
-}
-
-  /**
-   * ✅ MODIFIÉ: Méthode principale - pas de simulation si offline
-   */
   async fetchAllSensorsData() {
     console.log('🔄 Collecte des données de tous vos capteurs AirGradient...');
     
-    // Tester les permissions si pas encore fait
-    if (this.apiStatus.worldDataAccess === null) {
+    if (this.apiStatus.worldDataAccess === null && this.apiStatus.lastChecked === null) {
       await this.testAPIConnection();
     }
     
-    // ✅ Vérifier si le service est online
-    if (!this.apiStatus.isOnline) {
-      console.log('❌ Service AirGradient offline - aucune donnée disponible');
-      return []; // ✅ Retourner vide au lieu de simuler
-    }
-    
-    // Essayer de récupérer les données réelles
     if (this.apiKey) {
       const realData = await this.fetchRealAirGradientData();
       
       if (realData && realData.length > 0) {
-        console.log(`✅ ${realData.length} capteurs avec données réelles récupérées`);
+        const onlineCount = realData.filter(s => s.status === 'online').length;
+        const offlineCount = realData.filter(s => s.status === 'offline').length;
+        console.log(`✅ Synchronisation: ${onlineCount} capteur(s) en ligne, ${offlineCount} offline`);
         return realData;
       }
     }
     
-    // ✅ PAS DE SIMULATION - retourner vide si pas de données
-    console.log('❌ Aucune donnée réelle disponible - retour de liste vide');
+    console.log('⚠️ Aucune donnée disponible pour cette synchronisation');
     return [];
   }
   
-  /**
-   * ✅ NOUVELLE MÉTHODE: Obtenir la liste des capteurs configurés (sans données)
-   */
   getSensorLocations() {
     return this.sensorLocations.map(sensor => ({
       id: sensor.serialNo,
       serialNo: sensor.serialNo,
       serialNumeric: sensor.serialNumeric,
+      locationId: sensor.locationId,
       name: sensor.name,
       city: sensor.city,
       country: sensor.country,
@@ -667,49 +456,33 @@ class AirGradientService {
     }));
   }
   
-  /**
-   * ✅ NOUVELLE MÉTHODE: Forcer une synchronisation sans simulation
-   */
-  async forceSyncRealTimeData() {
-    console.log('🔄 Synchronisation forcée sans simulation...');
-    
+  async fetchSensorData(locationId) {
     try {
-      // Réinitialiser le statut
-      this.apiStatus.worldDataAccess = null;
-      this.apiStatus.isOnline = false;
-      
-      // Forcer un nouveau test de connexion
-      const connectionTest = await this.testAPIConnection();
-      
-      if (!connectionTest.success || !this.apiStatus.isOnline) {
-        console.log('❌ Service AirGradient offline - aucune donnée disponible');
-        return [];
+      if (!this.apiKey) {
+        throw new Error('API key not configured');
       }
-      
-      // Essayer de récupérer les vraies données
-      const realData = await this.fetchRealAirGradientData();
-      
-      if (realData && realData.length > 0) {
-        console.log(`✅ Synchronisation réussie: ${realData.length} capteurs avec données`);
-        return realData;
-      } else {
-        console.log('❌ Aucune donnée réelle disponible après synchronisation');
-        return [];
-      }
-      
+
+      const url = `${this.baseURL}/locations/${locationId}/measures/current`;
+      const response = await axios.get(url, {
+        headers: this.getHeaders(),
+        params: this.getAuthParams(),
+        timeout: 10000
+      });
+
+      return response.data;
     } catch (error) {
-      console.error('❌ Erreur synchronisation forcée:', error.message);
-      this.apiStatus.isOnline = false;
-      return [];
+      if (error.response?.status === 401) {
+        throw new Error('Authentication failed - Invalid API key');
+      }
+      throw error;
     }
   }
   
-  // ✅ MÉTHODES UTILITAIRES (gardées mais pas utilisées pour simulation)
   normalizeRealData(apiData) {
     return {
-      serialno: apiData.serialno,
       locationId: apiData.locationId,
       locationName: apiData.locationName,
+      publicLocationName: apiData.publicLocationName,
       timestamp: apiData.timestamp || new Date().toISOString(),
       pm01: apiData.pm01 || 0,
       pm02: apiData.pm02 || 0,
@@ -728,16 +501,31 @@ class AirGradientService {
       firmwareVersion: apiData.firmwareVersion || '3.3.9',
       latitude: apiData.latitude,
       longitude: apiData.longitude,
+      offline: apiData.offline || false,
       source: 'real_api'
     };
   }
-//normalise le airgradiant 
- normalizeSerial(value) {
-  if (value === undefined || value === null) return null;
-  return String(value).toLowerCase().replace(/^airgradient:/, '').replace(/^0x/, '');
-}
+
+  normalizeSerial(value) {
+    if (value === undefined || value === null) return null;
+    
+    // ✅ Support pour les nombres (serialNumeric)
+    let strValue = String(value);
+    
+    // ✅ Normalisation complète
+    return strValue
+      .toLowerCase()
+      .replace(/^airgradient:/, '')
+      .replace(/^0x/, '')
+      .trim();
+  }
   
   transformDataForStorage(rawData, locationInfo) {
+    // ✅ FIX: Gérer data: null pour capteurs offline
+    if (rawData === null) {
+      return [];
+    }
+    
     if (!Array.isArray(rawData)) {
       console.warn('⚠️ Données invalides (pas un array)');
       return [];
@@ -772,7 +560,7 @@ class AirGradientService {
         airQualityIndex: aqi,
         qualityLevel: level,
         timestamp: new Date(measurement.timestamp || Date.now()),
-        source: 'airgradient_real' // ✅ Seulement des données réelles
+        source: 'airgradient_real'
       };
     });
   }
@@ -810,9 +598,6 @@ class AirGradientService {
     };
   }
   
-  /**
-   * ✅ MODIFIÉ: Statistiques du compte sans simulation
-   */
   async getAccountStats() {
     const cities = [...new Set(this.sensorLocations.map(s => s.city))];
     const indoorSensors = this.sensorLocations.filter(s => s.type === 'indoor').length;
@@ -825,14 +610,13 @@ class AirGradientService {
       country: 'Sénégal',
       cities,
       citiesCount: cities.length,
-      // ✅ Informations sur l'état du service
       serviceOnline: this.apiStatus.isOnline,
       worldDataAccess: this.apiStatus.worldDataAccess,
-      dataSource: this.apiStatus.isOnline ? 'real_only' : 'offline', // ✅ Pas de simulation
+      dataSource: this.apiStatus.isOnline ? 'real_only' : 'offline',
       lastApiCheck: this.apiStatus.lastChecked,
       lastUpdate: new Date().toISOString(),
       apiKeyConfigured: !!this.apiKey,
-      simulationEnabled: false, // ✅ Toujours false
+      simulationEnabled: false,
       sensorsDetailed: {
         'Dakar': this.sensorLocations.filter(s => s.city === 'Dakar').length,
         'Saint-Louis': this.sensorLocations.filter(s => s.city === 'Saint-Louis').length,
@@ -840,24 +624,24 @@ class AirGradientService {
         'Diourbel': this.sensorLocations.filter(s => s.city === 'Diourbel').length,
         'Richard-Toll': this.sensorLocations.filter(s => s.city === 'Richard-Toll').length,
         'Rufisque': this.sensorLocations.filter(s => s.city === 'Rufisque').length,
-        'Pikine': this.sensorLocations.filter(s => s.city === 'Pikine').length
+        'Keur Massar': this.sensorLocations.filter(s => s.city === 'Keur Massar').length,
+        'Ziguinchor': this.sensorLocations.filter(s => s.city === 'Ziguinchor').length,
+        'Bignona': this.sensorLocations.filter(s => s.city === 'Bignona').length
       }
     };
   }
   
-  /**
-   * ✅ NOUVEAU: Diagnostic sans simulation
-   */
   async runDiagnostic() {
-    console.log('🔧 Diagnostic AirGradient (mode réel seulement)...');
+    console.log('🔧 Diagnostic AirGradient...');
     
     const diagnostic = {
       timestamp: new Date().toISOString(),
-      serviceMode: 'real_data_only', // ✅ Mode réel seulement
+      serviceMode: 'real_data_only',
       simulationEnabled: false,
       configuration: {
         totalSensors: this.sensorLocations.length,
         apiKeyConfigured: !!this.apiKey,
+        apiKeyPrefix: this.apiKey ? this.apiKey.substring(0, 8) + '...' : 'N/A',
         uniqueSensors: new Set(this.sensorLocations.map(s => s.serialNo)).size
       },
       apiConnection: null,
@@ -865,15 +649,18 @@ class AirGradientService {
       recommendations: []
     };
     
-    // Test de connexion API
     diagnostic.apiConnection = await this.testAPIConnection();
     
-    // Test d'accès aux données
     try {
-      const testData = await this.tryFetchWorldData();
+      const testData = await this.fetchRealAirGradientData();
+      const onlineCount = testData.filter(s => s.status === 'online').length;
+      const offlineCount = testData.filter(s => s.status === 'offline').length;
+      
       diagnostic.dataAccess = {
         success: testData.length > 0,
-        sensorsFound: testData.length,
+        sensorsTotal: this.sensorLocations.length,
+        sensorsOnline: onlineCount,
+        sensorsOffline: offlineCount,
         worldDataAccessible: this.apiStatus.worldDataAccess,
         serviceOnline: this.apiStatus.isOnline
       };
@@ -885,20 +672,23 @@ class AirGradientService {
       };
     }
     
-    // Recommandations
     if (!this.apiKey) {
       diagnostic.recommendations.push('Configurez AIRGRADIENT_API_KEY dans votre fichier .env');
     }
     
     if (!this.apiStatus.isOnline) {
-      diagnostic.recommendations.push('Service AirGradient offline - vérifiez votre connexion et clé API');
+      diagnostic.recommendations.push('Service AirGradient offline - vérifiez votre connexion et token');
     }
     
-    if (diagnostic.dataAccess && diagnostic.dataAccess.sensorsFound === 0) {
-      diagnostic.recommendations.push('Aucun capteur trouvé - vérifiez que vos capteurs envoient des données');
+    if (diagnostic.dataAccess && diagnostic.dataAccess.sensorsOnline === 0) {
+      diagnostic.recommendations.push('Aucun capteur en ligne - vérifiez que vos capteurs envoient des données');
     }
     
-    console.log('✅ Diagnostic terminé (mode réel seulement)');
+    if (diagnostic.dataAccess && diagnostic.dataAccess.sensorsOffline > 0) {
+      diagnostic.recommendations.push(`${diagnostic.dataAccess.sensorsOffline} capteur(s) offline - vérifiez l'état des capteurs`);
+    }
+    
+    console.log('✅ Diagnostic terminé');
     return diagnostic;
   }
 }

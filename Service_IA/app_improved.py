@@ -1,4 +1,4 @@
-# ai_service/app_fixed.py - Service IA avec gestion des valeurs infinies et NaN
+# ai_service/app_fixed_7days.py - Service IA avec support 7 jours (168h)
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import pandas as pd
@@ -42,7 +42,6 @@ def safe_division(numerator, denominator, fallback=0):
             result = np.divide(numerator, denominator, 
                              out=np.full_like(numerator, fallback, dtype=float), 
                              where=(denominator != 0))
-            # Remplacer les inf et nan par la valeur de fallback
             result = np.where(np.isfinite(result), result, fallback)
             return result
     except:
@@ -51,28 +50,22 @@ def safe_division(numerator, denominator, fallback=0):
 def clean_infinite_values(df, method='clip'):
     """Nettoyer les valeurs infinies et NaN dans un DataFrame"""
     try:
-        # Remplacer les inf par NaN
         df = df.replace([np.inf, -np.inf], np.nan)
         
         if method == 'clip':
-            # Clipper les valeurs extrêmes
             for col in df.select_dtypes(include=[np.number]).columns:
                 q1 = df[col].quantile(0.01)
                 q99 = df[col].quantile(0.99)
                 if pd.notna(q1) and pd.notna(q99):
                     df[col] = df[col].clip(lower=q1, upper=q99)
         
-        # Remplir les NaN avec des valeurs appropriées
         for col in df.select_dtypes(include=[np.number]).columns:
             if df[col].isna().any():
-                # Utiliser la médiane comme valeur de remplacement plus robuste
                 median_val = df[col].median()
                 if pd.isna(median_val):
-                    # Si même la médiane est NaN, utiliser 0
                     median_val = 0
                 df[col] = df[col].fillna(median_val)
         
-        # Vérification finale
         for col in df.select_dtypes(include=[np.number]).columns:
             if not np.isfinite(df[col]).all():
                 logger.warning(f"Valeurs non-finies détectées dans {col}, remplacement par 0")
@@ -82,7 +75,6 @@ def clean_infinite_values(df, method='clip'):
         
     except Exception as e:
         logger.error(f"Erreur nettoyage valeurs infinies: {e}")
-        # En cas d'erreur, remplir toutes les valeurs non-finies par 0
         return df.fillna(0).replace([np.inf, -np.inf], 0)
 
 def convert_numpy_types(obj):
@@ -114,9 +106,10 @@ class AirQualityPredictor:
             'pm25', 'pm10', 'co2', 'temperature', 'humidity', 
             'hour', 'dayOfWeek', 'month', 'aqi'
         ]
-        self.model_version = "2.2"  # Version corrigée
+        self.model_version = "2.3-7days"  # Version 7 jours
         self.min_data_points = 48
         self.sequence_length = 24
+        self.max_hours_ahead = 168  # ✅ 7 jours support
         self.ensemble_weights = {
             'rf': 0.4,
             'gb': 0.3,
@@ -128,37 +121,31 @@ class AirQualityPredictor:
         try:
             df = pd.DataFrame(data)
             
-            # Vérifications de base
             if df.empty:
                 return None, "DataFrame vide"
             
-            # Vérifier les colonnes requises
             required_cols = ['timestamp', 'pm25', 'pm10', 'co2', 'temperature', 'humidity', 'hour', 'aqi']
             missing_cols = [col for col in required_cols if col not in df.columns]
             if missing_cols:
                 return None, f"Colonnes manquantes: {missing_cols}"
             
-            # Nettoyer les valeurs aberrantes
+            # Nettoyer valeurs aberrantes
             for col in ['pm25', 'pm10', 'co2', 'aqi']:
                 if col in df.columns:
-                    # Valeurs négatives impossible
                     df[col] = df[col].clip(lower=0)
                     
-                    # Valeurs extrêmes
                     if col in ['pm25', 'pm10']:
-                        df[col] = df[col].clip(upper=1000)  # Max réaliste
+                        df[col] = df[col].clip(upper=1000)
                     elif col == 'co2':
-                        df[col] = df[col].clip(lower=300, upper=10000)  # Plage réaliste
+                        df[col] = df[col].clip(lower=300, upper=10000)
                     elif col == 'aqi':
-                        df[col] = df[col].clip(upper=500)  # Max AQI
+                        df[col] = df[col].clip(upper=500)
             
-            # Température et humidité
             if 'temperature' in df.columns:
-                df['temperature'] = df['temperature'].clip(-50, 60)  # Plage réaliste
+                df['temperature'] = df['temperature'].clip(-50, 60)
             if 'humidity' in df.columns:
-                df['humidity'] = df['humidity'].clip(0, 100)  # Pourcentage
+                df['humidity'] = df['humidity'].clip(0, 100)
             
-            # Heures et jours
             if 'hour' in df.columns:
                 df['hour'] = df['hour'] % 24
             if 'dayOfWeek' in df.columns:
@@ -166,7 +153,6 @@ class AirQualityPredictor:
             if 'month' in df.columns:
                 df['month'] = df['month'].clip(1, 12)
             
-            # Nettoyer les valeurs infinies
             df = clean_infinite_values(df)
             
             logger.info(f"Données validées: {len(df)} lignes, colonnes: {list(df.columns)}")
@@ -179,19 +165,16 @@ class AirQualityPredictor:
     def prepare_features(self, data, include_external=True):
         """Préparer les features avec gestion robuste des erreurs"""
         try:
-            # Valider d'abord les données
             df, error = self.validate_input_data(data)
             if error:
                 return None, error
             
-            # Convertir la timestamp
             df['timestamp'] = pd.to_datetime(df['timestamp'])
             df = df.sort_values('timestamp')
             
-            # Features de base
             features_df = df[self.feature_columns].copy()
             
-            # Features temporelles cycliques (sécurisées)
+            # Features temporelles cycliques
             features_df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
             features_df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
             features_df['day_sin'] = np.sin(2 * np.pi * df['dayOfWeek'] / 7)
@@ -199,19 +182,18 @@ class AirQualityPredictor:
             features_df['month_sin'] = np.sin(2 * np.pi * df['month'] / 12)
             features_df['month_cos'] = np.cos(2 * np.pi * df['month'] / 12)
             
-            # Indicateurs simples
+            # Indicateurs temporels
             features_df['is_weekend'] = (df['dayOfWeek'] >= 5).astype(int)
             features_df['is_morning_rush'] = ((df['hour'] >= 6) & (df['hour'] <= 9)).astype(int)
             features_df['is_evening_rush'] = ((df['hour'] >= 17) & (df['hour'] <= 20)).astype(int)
             features_df['is_night'] = ((df['hour'] >= 22) | (df['hour'] <= 5)).astype(int)
             
-            # Moyennes mobiles (avec gestion d'erreurs)
+            # Moyennes mobiles
             for window in [3, 6, 12, 24]:
                 try:
                     pm25_ma = df['pm25'].rolling(window=window, min_periods=1).mean()
                     pm10_ma = df['pm10'].rolling(window=window, min_periods=1).mean()
                     
-                    # Vérifier les valeurs finies
                     if np.isfinite(pm25_ma).all():
                         features_df[f'pm25_ma_{window}'] = pm25_ma
                     else:
@@ -227,7 +209,7 @@ class AirQualityPredictor:
                     features_df[f'pm25_ma_{window}'] = df['pm25']
                     features_df[f'pm10_ma_{window}'] = df['pm10']
             
-            # Écart-types (sécurisés)
+            # Écart-types
             try:
                 pm25_std_6 = df['pm25'].rolling(window=6, min_periods=1).std()
                 pm25_std_24 = df['pm25'].rolling(window=24, min_periods=1).std()
@@ -238,14 +220,14 @@ class AirQualityPredictor:
                 features_df['pm25_std_6'] = 0
                 features_df['pm25_std_24'] = 0
             
-            # Ratio PM2.5/PM10 (sécurisé)
+            # Ratio PM2.5/PM10
             features_df['pm_ratio'] = safe_division(
                 df['pm25'].values, 
-                df['pm10'].values + 1,  # Éviter division par 0
-                fallback=0.5  # Ratio par défaut
+                df['pm10'].values + 1,
+                fallback=0.5
             )
             
-            # Différences (sécurisées)
+            # Différences
             for lag in [1, 6, 24]:
                 try:
                     pm25_diff = df['pm25'].diff(lag)
@@ -253,7 +235,7 @@ class AirQualityPredictor:
                 except:
                     features_df[f'pm25_diff_{lag}'] = 0
             
-            # Pourcentages de changement (sécurisés)
+            # Pourcentages de changement
             try:
                 pct_1 = df['pm25'].pct_change(1)
                 pct_6 = df['pm25'].pct_change(6)
@@ -276,7 +258,7 @@ class AirQualityPredictor:
                     features_df[f'pm25_lag_{lag}'] = df['pm25'].mean()
                     features_df[f'aqi_lag_{lag}'] = df['aqi'].mean()
             
-            # Features météo avancées (sécurisées)
+            # Features météo
             if 'temperature' in df.columns and 'humidity' in df.columns:
                 try:
                     heat_index = self.calculate_heat_index_safe(df['temperature'], df['humidity'])
@@ -285,7 +267,7 @@ class AirQualityPredictor:
                     temp_humid = safe_division(
                         df['temperature'].values * df['humidity'].values, 
                         100, 
-                        fallback=20  # Valeur par défaut
+                        fallback=20
                     )
                     features_df['temp_humidity_interaction'] = temp_humid
                     
@@ -300,7 +282,7 @@ class AirQualityPredictor:
                     features_df['is_humid'] = 0
                     features_df['is_dry'] = 0
             
-            # Index de pollution (sécurisé)
+            # Index de pollution
             try:
                 pollution_index = (
                     df['pm25'] * 0.5 + 
@@ -311,7 +293,7 @@ class AirQualityPredictor:
             except:
                 features_df['pollution_index'] = df['pm25']
             
-            # Z-score (sécurisé)
+            # Z-score
             try:
                 pm25_mean = df['pm25'].mean()
                 pm25_std = df['pm25'].std()
@@ -330,7 +312,7 @@ class AirQualityPredictor:
             features_df['is_dry_season'] = ((df['month'] >= 11) | (df['month'] <= 3)).astype(int)
             features_df['is_rainy_season'] = ((df['month'] >= 6) & (df['month'] <= 9)).astype(int)
             
-            # Quantiles (sécurisés)
+            # Quantiles
             try:
                 q25 = df['pm25'].rolling(window=24, min_periods=1).quantile(0.25)
                 q75 = df['pm25'].rolling(window=24, min_periods=1).quantile(0.75)
@@ -343,7 +325,6 @@ class AirQualityPredictor:
                 features_df['pm25_quantile_75'] = df['pm25']
                 features_df['pm25_iqr'] = 0
             
-            # Nettoyage final complet
             features_df = clean_infinite_values(features_df)
             
             logger.info(f"Features préparées: {features_df.shape}, colonnes: {len(features_df.columns)}")
@@ -356,7 +337,6 @@ class AirQualityPredictor:
     def calculate_heat_index_safe(self, temp, humidity):
         """Calculer l'indice de chaleur de manière sécurisée"""
         try:
-            # Clipper les valeurs d'entrée
             temp = np.clip(temp, -50, 60)
             humidity = np.clip(humidity, 0, 100)
             
@@ -367,38 +347,31 @@ class AirQualityPredictor:
             hi += 0.00221 * temp**2 * humidity
             hi += 0.00072 * temp * humidity**2
             
-            # Remplacer par temp si conditions non appropriées
             result = np.where(temp < 27, temp, hi)
-            
-            # Vérifier et nettoyer les valeurs infinies
             result = np.where(np.isfinite(result), result, temp)
             
             return result
         except:
-            return temp  # Fallback
+            return temp
     
     def train_model(self, data, use_ensemble=True):
         """Entraîner les modèles avec validation robuste"""
         try:
             logger.info(f"Entraînement avec {len(data)} points de données")
             
-            # Préparer les features avec validation
             features_df, error = self.prepare_features(data)
             if error:
                 return False, f"Erreur préparation features: {error}"
             
-            # Target (PM2.5 suivant)
             df, _ = self.validate_input_data(data)
             targets = df['pm25'].shift(-1).dropna()
             features_df = features_df.iloc[:-1]
             
-            # Vérification finale des données
             if len(features_df) != len(targets):
                 min_len = min(len(features_df), len(targets))
                 features_df = features_df.iloc[:min_len]
                 targets = targets.iloc[:min_len]
             
-            # Normalisation robuste (utilise RobustScaler au lieu de StandardScaler)
             self.feature_scaler = RobustScaler()
             self.target_scaler = RobustScaler()
             
@@ -406,7 +379,6 @@ class AirQualityPredictor:
                 features_scaled = self.feature_scaler.fit_transform(features_df)
                 targets_scaled = self.target_scaler.fit_transform(targets.values.reshape(-1, 1)).ravel()
                 
-                # Vérification des valeurs après normalisation
                 if not np.isfinite(features_scaled).all():
                     logger.warning("Valeurs non-finies après normalisation features, nettoyage...")
                     features_scaled = np.where(np.isfinite(features_scaled), features_scaled, 0)
@@ -419,14 +391,12 @@ class AirQualityPredictor:
                 logger.error(f"Erreur normalisation: {e}")
                 return False, f"Erreur normalisation: {e}"
             
-            # Validation croisée temporelle
             tscv = TimeSeriesSplit(n_splits=3)
             scores = {'rf': [], 'gb': [], 'lstm': []}
             
-            # 1. Random Forest (paramètres plus conservateurs)
             self.models['rf'] = RandomForestRegressor(
-                n_estimators=100,  # Réduit pour plus de stabilité
-                max_depth=10,      # Limité pour éviter l'overfitting
+                n_estimators=100,
+                max_depth=10,
                 min_samples_split=10,
                 min_samples_leaf=5,
                 max_features='sqrt',
@@ -434,7 +404,6 @@ class AirQualityPredictor:
                 n_jobs=-1
             )
             
-            # 2. Gradient Boosting (paramètres plus conservateurs)
             self.models['gb'] = GradientBoostingRegressor(
                 n_estimators=100,
                 learning_rate=0.1,
@@ -445,18 +414,15 @@ class AirQualityPredictor:
                 random_state=42
             )
             
-            # Entraînement et validation croisée
             for train_idx, val_idx in tscv.split(features_scaled):
                 X_train, X_val = features_scaled[train_idx], features_scaled[val_idx]
                 y_train, y_val = targets_scaled[train_idx], targets_scaled[val_idx]
                 
                 try:
-                    # Random Forest
                     self.models['rf'].fit(X_train, y_train)
                     rf_pred = self.models['rf'].predict(X_val)
                     scores['rf'].append(r2_score(y_val, rf_pred))
                     
-                    # Gradient Boosting
                     self.models['gb'].fit(X_train, y_train)
                     gb_pred = self.models['gb'].predict(X_val)
                     scores['gb'].append(r2_score(y_val, gb_pred))
@@ -466,7 +432,6 @@ class AirQualityPredictor:
                     scores['rf'].append(0.5)
                     scores['gb'].append(0.5)
             
-            # Entraînement final sur toutes les données
             try:
                 self.models['rf'].fit(features_scaled, targets_scaled)
                 self.models['gb'].fit(features_scaled, targets_scaled)
@@ -474,10 +439,8 @@ class AirQualityPredictor:
                 logger.error(f"Erreur entraînement final: {e}")
                 return False, f"Erreur entraînement final: {e}"
             
-            # Calcul des performances moyennes
             avg_scores = {k: np.mean(v) if v else 0.5 for k, v in scores.items()}
             
-            # Ajuster les poids de l'ensemble
             if use_ensemble:
                 total_score = sum(avg_scores.values())
                 if total_score > 0:
@@ -485,7 +448,6 @@ class AirQualityPredictor:
                 else:
                     self.ensemble_weights = {'rf': 0.5, 'gb': 0.5, 'lstm': 0}
             
-            # Prédictions finales pour évaluation
             try:
                 final_predictions_scaled = self.predict_ensemble(features_scaled)
                 final_predictions_original = self.target_scaler.inverse_transform(
@@ -500,7 +462,6 @@ class AirQualityPredictor:
                 logger.warning(f"Erreur évaluation finale: {e}")
                 mae, rmse, r2 = 1.0, 1.0, 0.5
             
-            # Analyse des features importantes (sécurisée)
             try:
                 feature_importance = pd.DataFrame({
                     'feature': features_df.columns,
@@ -522,7 +483,8 @@ class AirQualityPredictor:
                 'training_samples': len(targets),
                 'ensemble_weights': self.ensemble_weights,
                 'top_features': top_features,
-                'model_scores': avg_scores
+                'model_scores': avg_scores,
+                'version': self.model_version
             })
             
         except Exception as e:
@@ -534,7 +496,6 @@ class AirQualityPredictor:
         try:
             predictions = np.zeros(len(features_scaled))
             
-            # Random Forest
             if 'rf' in self.models and self.models['rf'] is not None:
                 try:
                     rf_pred = self.models['rf'].predict(features_scaled)
@@ -545,7 +506,6 @@ class AirQualityPredictor:
                 except Exception as e:
                     logger.warning(f"Erreur prédiction RF: {e}")
             
-            # Gradient Boosting
             if 'gb' in self.models and self.models['gb'] is not None:
                 try:
                     gb_pred = self.models['gb'].predict(features_scaled)
@@ -556,9 +516,8 @@ class AirQualityPredictor:
                 except Exception as e:
                     logger.warning(f"Erreur prédiction GB: {e}")
             
-            # Si toutes les prédictions sont nulles, utiliser une valeur par défaut
             if np.all(predictions == 0):
-                predictions = np.full(len(features_scaled), 0.5)  # Valeur normalisée par défaut
+                predictions = np.full(len(features_scaled), 0.5)
             
             return predictions
             
@@ -566,15 +525,83 @@ class AirQualityPredictor:
             logger.error(f"Erreur prédiction ensemble: {e}")
             return np.full(len(features_scaled), 0.5)
     
-    # ... (reste des méthodes inchangées: predict, calculate_aqi, get_contributing_factors)
+    def calculate_confidence(self, hour_ahead):
+        """✅ NOUVEAU: Calculer confiance dégradée sur 7 jours"""
+        if hour_ahead <= 24:
+            # 0-24h: confiance élevée
+            base_confidence = 0.75
+            decay = (hour_ahead - 1) * 0.01
+            confidence = max(0.50, min(0.85, base_confidence - decay))
+        elif hour_ahead <= 72:
+            # 24-72h: confiance moyenne
+            hours_past_24 = hour_ahead - 24
+            base_confidence = 0.70
+            decay = (hours_past_24 / 48) * 0.15
+            confidence = max(0.40, base_confidence - decay)
+        else:
+            # 72-168h: confiance faible
+            hours_past_72 = hour_ahead - 72
+            base_confidence = 0.55
+            decay = (hours_past_72 / 96) * 0.20
+            confidence = max(0.25, base_confidence - decay)
+        
+        return float(round(confidence, 3))
     
-    def predict(self, data, hours_ahead=24):
-        """Générer des prédictions avec gestion robuste des erreurs"""
+    def calculate_uncertainty_level(self, hour_ahead, confidence):
+        """✅ NOUVEAU: Déterminer niveau d'incertitude"""
+        if hour_ahead <= 24:
+            return 'low' if confidence > 0.7 else 'medium'
+        elif hour_ahead <= 72:
+            return 'medium' if confidence > 0.6 else 'high'
+        else:
+            return 'high' if confidence > 0.5 else 'very_high'
+    
+    def update_temporal_features(self, features_row, future_time):
+        """✅ NOUVEAU: Mise à jour correcte features temporelles pour long terme"""
+        try:
+            # Extraire valeurs temporelles de future_time
+            hour = future_time.hour
+            day_of_week = future_time.weekday()
+            month = future_time.month
+            
+            # Mettre à jour valeurs de base
+            features_row['hour'] = hour
+            features_row['dayOfWeek'] = day_of_week
+            features_row['month'] = month
+            
+            # Recalculer features cycliques
+            features_row['hour_sin'] = np.sin(2 * np.pi * hour / 24)
+            features_row['hour_cos'] = np.cos(2 * np.pi * hour / 24)
+            features_row['day_sin'] = np.sin(2 * np.pi * day_of_week / 7)
+            features_row['day_cos'] = np.cos(2 * np.pi * day_of_week / 7)
+            features_row['month_sin'] = np.sin(2 * np.pi * month / 12)
+            features_row['month_cos'] = np.cos(2 * np.pi * month / 12)
+            
+            # Recalculer indicateurs temporels
+            features_row['is_weekend'] = 1 if day_of_week >= 5 else 0
+            features_row['is_morning_rush'] = 1 if 6 <= hour <= 9 else 0
+            features_row['is_evening_rush'] = 1 if 17 <= hour <= 20 else 0
+            features_row['is_night'] = 1 if (hour >= 22 or hour <= 5) else 0
+            
+            # Recalculer features saisonnières
+            features_row['is_dry_season'] = 1 if (month >= 11 or month <= 3) else 0
+            features_row['is_rainy_season'] = 1 if 6 <= month <= 9 else 0
+            
+            return features_row
+            
+        except Exception as e:
+            logger.warning(f"Erreur mise à jour features temporelles: {e}")
+            return features_row
+    
+    def predict(self, data, hours_ahead=168):
+        """✅ AMÉLIORÉ: Générer prédictions jusqu'à 168h (7 jours)"""
         try:
             if not self.models or self.feature_scaler is None:
                 return None, "Modèles non entraînés"
             
-            # Préparer les features avec validation
+            # Limiter à max supporté
+            hours_ahead = min(hours_ahead, self.max_hours_ahead)
+            
             features_df, error = self.prepare_features(data)
             if error:
                 return None, f"Erreur préparation features pour prédiction: {error}"
@@ -582,62 +609,71 @@ class AirQualityPredictor:
             predictions = []
             prediction_features = features_df.copy()
             
-            for hour in range(1, min(hours_ahead + 1, 25)):  # Limiter à 24h max pour la stabilité
+            # ✅ CHANGEMENT CRITIQUE: Supprimer limite 24h
+            for hour in range(1, hours_ahead + 1):  # Support jusqu'à 168h !
                 try:
-                    # Prendre les dernières features
                     last_features = prediction_features.iloc[-1:].copy()
                     features_scaled = self.feature_scaler.transform(last_features)
                     
-                    # Vérifier les valeurs après transformation
                     if not np.isfinite(features_scaled).all():
                         logger.warning(f"Features non-finies à l'heure {hour}, nettoyage...")
                         features_scaled = np.where(np.isfinite(features_scaled), features_scaled, 0)
                     
-                    # Prédiction ensemble
                     ensemble_pred = self.predict_ensemble(features_scaled)[0]
                     
-                    # Dénormalisation
                     pred_pm25 = self.target_scaler.inverse_transform([[ensemble_pred]])[0, 0]
-                    pred_pm25 = max(0, min(pred_pm25, 1000))  # Contraintes réalistes
+                    pred_pm25 = max(0, min(pred_pm25, 1000))
                     
-                    # Calculer l'AQI prédit
                     pred_aqi = self.calculate_aqi(pred_pm25)
                     
-                    # Score de confiance basique
-                    confidence = max(0.3, min(0.9, 0.7 - (hour - 1) * 0.05))
+                    # ✅ NOUVEAU: Confiance adaptative 7 jours
+                    confidence = self.calculate_confidence(hour)
                     
-                    # Timestamp de prédiction
                     base_time = datetime.fromisoformat(data[-1]['timestamp'].replace('Z', '+00:00'))
                     pred_time = base_time + timedelta(hours=hour)
                     
-                    # Facteurs explicatifs simplifiés
                     feature_values = last_features.iloc[0]
                     contributing_factors = self.get_contributing_factors_safe(feature_values, pred_pm25)
                     
-                    # Prédiction finale avec conversion sécurisée
+                    # ✅ NOUVEAU: Intervalle de confiance
+                    uncertainty_value = (1 - confidence) * pred_pm25 * 0.5
+                    confidence_interval = {
+                        'lower': float(max(0, round(pred_pm25 - uncertainty_value, 2))),
+                        'upper': float(min(1000, round(pred_pm25 + uncertainty_value, 2))),
+                        'range': float(round(uncertainty_value * 2, 2))
+                    }
+                    
+                    # ✅ NOUVEAU: Niveau d'incertitude
+                    uncertainty_level = self.calculate_uncertainty_level(hour, confidence)
+                    
                     prediction_dict = {
                         'hour_ahead': int(hour),
                         'predicted_pm25': float(round(pred_pm25, 2)),
                         'predicted_aqi': float(round(pred_aqi, 1)),
-                        'confidence': float(round(confidence, 3)),
+                        'confidence': confidence,
+                        'confidence_interval': confidence_interval,  # ✅ NOUVEAU
+                        'uncertainty': {                             # ✅ NOUVEAU
+                            'value': float(round(uncertainty_value, 2)),
+                            'level': uncertainty_level
+                        },
                         'timestamp': pred_time.isoformat(),
                         'contributing_factors': contributing_factors,
+                        'is_extreme': pred_pm25 > 100,              # ✅ NOUVEAU
                         'modelVersion': self.model_version
                     }
                     
                     predictions.append(prediction_dict)
                     
-                    # Mettre à jour les features pour la prochaine prédiction (simplifié)
+                    # ✅ AMÉLIORÉ: Mise à jour features temporelles complète
                     new_row = last_features.copy()
+                    new_row = self.update_temporal_features(new_row, pred_time)
+                    
+                    # Mettre à jour valeurs prédites
                     new_row['pm25'] = pred_pm25
                     new_row['aqi'] = pred_aqi
-                    new_row['hour'] = (new_row['hour'].iloc[0] + 1) % 24
                     
-                    if new_row['hour'].iloc[0] == 0:
-                        new_row['dayOfWeek'] = (new_row['dayOfWeek'].iloc[0] + 1) % 7
-                    
-                    # Mettre à jour quelques features essentielles seulement
-                    for col in ['pm25_ma_3', 'pm25_ma_6']:
+                    # Mettre à jour moyennes mobiles essentielles
+                    for col in ['pm25_ma_3', 'pm25_ma_6', 'pm25_ma_12']:
                         if col in prediction_features.columns:
                             try:
                                 window = int(col.split('_')[-1])
@@ -646,30 +682,42 @@ class AirQualityPredictor:
                             except:
                                 new_row[col] = pred_pm25
                     
-                    # Ajouter la nouvelle ligne
                     prediction_features = pd.concat([prediction_features, new_row], ignore_index=True)
+                    
+                    # Log progression toutes les 24h
+                    if hour % 24 == 0:
+                        logger.info(f"Progression: {hour}/{hours_ahead}h - PM2.5: {pred_pm25:.1f}, Confiance: {confidence:.2f}")
                     
                 except Exception as hour_error:
                     logger.warning(f"Erreur prédiction heure {hour}: {hour_error}")
-                    # Prédiction de secours
+                    
                     base_time = datetime.fromisoformat(data[-1]['timestamp'].replace('Z', '+00:00'))
                     pred_time = base_time + timedelta(hours=hour)
-                    
-                    # Utiliser la dernière valeur connue comme prédiction de secours
                     last_pm25 = data[-1].get('pm25', 25)
                     
                     prediction_dict = {
                         'hour_ahead': int(hour),
                         'predicted_pm25': float(round(last_pm25, 2)),
                         'predicted_aqi': float(round(self.calculate_aqi(last_pm25), 1)),
-                        'confidence': 0.3,  # Confiance faible pour les prédictions de secours
+                        'confidence': 0.3,
+                        'confidence_interval': {
+                            'lower': float(round(last_pm25 * 0.8, 2)),
+                            'upper': float(round(last_pm25 * 1.2, 2)),
+                            'range': float(round(last_pm25 * 0.4, 2))
+                        },
+                        'uncertainty': {
+                            'value': float(round(last_pm25 * 0.2, 2)),
+                            'level': 'very_high'
+                        },
                         'timestamp': pred_time.isoformat(),
                         'contributing_factors': [],
+                        'is_extreme': last_pm25 > 100,
                         'modelVersion': f"{self.model_version}-fallback"
                     }
                     
                     predictions.append(prediction_dict)
             
+            logger.info(f"✅ {len(predictions)} prédictions générées (0-{hours_ahead}h)")
             return predictions, None
             
         except Exception as e:
@@ -677,9 +725,9 @@ class AirQualityPredictor:
             return None, str(e)
     
     def calculate_aqi(self, pm25):
-        """Calculer l'AQI selon les standards US EPA (sécurisé)"""
+        """Calculer l'AQI selon les standards US EPA"""
         try:
-            pm25 = max(0, min(pm25, 1000))  # Contraintes
+            pm25 = max(0, min(pm25, 1000))
             
             breakpoints = [
                 (0, 12.0, 0, 50),
@@ -698,14 +746,13 @@ class AirQualityPredictor:
             
             return 500
         except:
-            return 100  # Valeur par défaut
+            return 100
     
     def get_contributing_factors_safe(self, features, prediction):
         """Identifier les facteurs contributifs de manière sécurisée"""
         try:
             factors = []
             
-            # Analyser les tendances (sécurisé)
             try:
                 if 'pm25_ma_24' in features:
                     trend_24h = features['pm25_ma_24']
@@ -719,7 +766,6 @@ class AirQualityPredictor:
             except:
                 pass
             
-            # Heures de pointe
             try:
                 if features.get('is_morning_rush', 0) == 1:
                     factors.append({
@@ -730,7 +776,6 @@ class AirQualityPredictor:
             except:
                 pass
             
-            # Conditions météo
             try:
                 if 'temperature' in features and pd.notna(features['temperature']):
                     if features['temperature'] > 30:
@@ -753,7 +798,6 @@ class AirQualityPredictor:
             except:
                 pass
             
-            # Saison
             try:
                 if features.get('is_dry_season', 0) == 1:
                     factors.append({
@@ -764,7 +808,7 @@ class AirQualityPredictor:
             except:
                 pass
             
-            return factors[:3]  # Limiter à 3 facteurs
+            return factors[:3]
             
         except Exception as e:
             logger.warning(f"Erreur facteurs contributifs: {e}")
@@ -778,17 +822,24 @@ def health_check():
     """Vérification de santé du service"""
     return jsonify({
         'status': 'healthy',
-        'service': 'AirLight AI Prediction Service (Fixed)',
+        'service': 'AirLight AI Prediction Service - 7 Days Support',
         'version': predictor.model_version,
+        'max_hours_ahead': predictor.max_hours_ahead,
         'models_available': list(predictor.models.keys()),
         'lstm_available': LSTM_AVAILABLE,
-        'features': 'Robust error handling for infinite values',
+        'features': {
+            'confidence_intervals': True,
+            'uncertainty_levels': True,
+            'temporal_feature_update': True,
+            'extreme_detection': True,
+            'max_prediction_hours': 168
+        },
         'timestamp': datetime.now().isoformat()
     })
 
 @app.route('/predict', methods=['POST'])
 def predict():
-    """Endpoint principal pour les prédictions avec gestion robuste des erreurs"""
+    """Endpoint principal pour les prédictions avec support 7 jours"""
     try:
         data = request.get_json()
         
@@ -800,17 +851,15 @@ def predict():
         
         sensor_id = data.get('sensorId', 'unknown')
         training_data = data['data']
-        hours_ahead = min(data.get('hours_ahead', 6), 24)  # Limité à 24h pour la stabilité
+        hours_ahead = min(data.get('hours_ahead', 168), 168)  # ✅ Support jusqu'à 168h
         use_ensemble = data.get('use_ensemble', True)
         
-        # Validation des données d'entrée
         if len(training_data) < predictor.min_data_points:
             return jsonify({
                 'success': False,
                 'error': f'Minimum {predictor.min_data_points} points de données requis, reçu {len(training_data)}'
             }), 400
         
-        # Vérifier la structure des données
         required_fields = ['timestamp', 'pm25', 'pm10', 'co2', 'temperature', 'humidity', 'hour', 'aqi']
         first_record = training_data[0] if training_data else {}
         missing_fields = [field for field in required_fields if field not in first_record]
@@ -821,9 +870,8 @@ def predict():
                 'error': f'Champs manquants dans les données: {missing_fields}'
             }), 400
         
-        logger.info(f"Début prédiction pour {sensor_id} - {len(training_data)} points, {hours_ahead}h")
+        logger.info(f"🔮 Début prédiction {hours_ahead}h pour {sensor_id} - {len(training_data)} points")
         
-        # Entraîner les modèles avec gestion d'erreurs
         train_success, train_result = predictor.train_model(training_data, use_ensemble)
         
         if not train_success:
@@ -833,7 +881,6 @@ def predict():
                 'fallback_available': True
             }), 500
         
-        # Générer les prédictions
         predictions, error = predictor.predict(training_data, hours_ahead)
         
         if error:
@@ -850,7 +897,6 @@ def predict():
                 'training_result': train_result
             }), 500
         
-        # Analyse statistique des prédictions (sécurisée)
         try:
             pred_values = [p['predicted_pm25'] for p in predictions if 'predicted_pm25' in p]
             if pred_values:
@@ -861,7 +907,9 @@ def predict():
                     'min': np.min(pred_values),
                     'max': np.max(pred_values),
                     'trend': 'increasing' if len(pred_values) > 1 and pred_values[-1] > pred_values[0] else 'stable',
-                    'mean_confidence': np.mean([p.get('confidence', 0.5) for p in predictions])
+                    'mean_confidence': np.mean([p.get('confidence', 0.5) for p in predictions]),
+                    'extreme_predictions': sum(1 for p in predictions if p.get('is_extreme', False)),
+                    'high_uncertainty_count': sum(1 for p in predictions if p.get('uncertainty', {}).get('level') in ['high', 'very_high'])
                 })
             else:
                 stats = {'error': 'Aucune prédiction valide'}
@@ -869,9 +917,8 @@ def predict():
             logger.warning(f"Erreur calcul stats: {stats_error}")
             stats = {'error': 'Erreur calcul statistiques'}
         
-        logger.info(f"Prédictions générées avec succès pour {sensor_id}: {len(predictions)} heures")
+        logger.info(f"✅ {len(predictions)} prédictions générées pour {sensor_id}")
         
-        # Réponse finale sécurisée
         response_data = convert_numpy_types({
             'success': True,
             'sensor_id': sensor_id,
@@ -921,6 +968,14 @@ def model_info():
             'version': predictor.model_version,
             'features_count': len(predictor.feature_columns),
             'min_data_points': predictor.min_data_points,
+            'max_hours_ahead': predictor.max_hours_ahead,
+            'capabilities': {
+                '7_days_support': True,
+                'confidence_intervals': True,
+                'uncertainty_estimation': True,
+                'temporal_features_update': True,
+                'extreme_detection': True
+            },
             'error_handling': {
                 'infinite_values': 'Automatic cleanup',
                 'missing_values': 'Robust imputation',
@@ -979,7 +1034,6 @@ def debug_data():
                 'error': 'Données requises'
             }), 400
         
-        # Analyser les données
         df = pd.DataFrame(data['data'])
         
         debug_info = {
@@ -991,12 +1045,10 @@ def debug_data():
             'statistics': {}
         }
         
-        # Vérifier les valeurs infinies
         for col in df.select_dtypes(include=[np.number]).columns:
             inf_count = np.isinf(df[col]).sum()
             debug_info['infinite_counts'][col] = int(inf_count)
             
-            # Statistiques basiques
             try:
                 debug_info['statistics'][col] = {
                     'mean': float(df[col].mean()) if pd.notna(df[col].mean()) else None,
@@ -1009,7 +1061,6 @@ def debug_data():
             except:
                 debug_info['statistics'][col] = {'error': 'Cannot compute stats'}
         
-        # Tester la validation
         validated_df, validation_error = predictor.validate_input_data(data['data'])
         
         debug_info['validation'] = {
@@ -1031,8 +1082,15 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     debug = os.environ.get('DEBUG', 'False').lower() == 'true'
     
-    logger.info(f"Démarrage du service IA corrigé sur le port {port}")
-    logger.info(f"LSTM disponible: {LSTM_AVAILABLE}")
-    logger.info("🔧 Corrections appliquées: gestion robuste des valeurs infinies et NaN")
+    logger.info(f"🚀 Démarrage du service IA 7 jours sur le port {port}")
+    logger.info(f"📊 Version: {predictor.model_version}")
+    logger.info(f"⏱️  Support prédictions: jusqu'à {predictor.max_hours_ahead} heures (7 jours)")
+    logger.info(f"🤖 LSTM disponible: {LSTM_AVAILABLE}")
+    logger.info("🔧 Corrections appliquées:")
+    logger.info("   ✅ Support 168 heures")
+    logger.info("   ✅ Intervalles de confiance adaptatifs")
+    logger.info("   ✅ Mise à jour features temporelles complète")
+    logger.info("   ✅ Détection valeurs extrêmes")
+    logger.info("   ✅ Niveaux d'incertitude")
     
     app.run(host='0.0.0.0', port=port, debug=debug)

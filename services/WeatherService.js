@@ -23,75 +23,103 @@ class WeatherService {
       { name: 'Diourbel', lat: 14.6522, lon: -16.2317 },
       { name: 'Richard-Toll', lat: 16.4617, lon: -15.7014 },
       { name: 'Rufisque', lat: 14.7672, lon: -17.2008 },
-      { name: 'Pikine', lat: 14.7547, lon: -17.3906 }
+      { name: 'Pikine', lat: 14.7547, lon: -17.3906 },
+      { name: 'Ziguinchor', lat: 12.5598894, lon: -16.3521255 },
+      { name: 'Bignona', lat: 12.8022364, lon: -16.269821 },
     ];
     
-    console.log('🌤️ Service météo initialisé avec OpenWeatherMap');
+    console.log(' Service météo initialisé avec OpenWeatherMap');
   }
 
   // 🔄 Méthode principale : Obtenir météo actuelle
   async getCurrentWeather(city = null, lat = null, lon = null) {
-    try {
-      if (!this.apiKey) {
-        return {
-          success: false,
-          error: 'Clé API OpenWeather manquante',
-          recommendation: 'Configurez OPENWEATHER_API_KEY dans .env'
-        };
-      }
-
-      let params = {
-        appid: this.apiKey,
-        units: 'metric',
-        lang: 'fr'
-      };
-
-      // Déterminer la localisation
-      if (lat && lon) {
-        params.lat = lat;
-        params.lon = lon;
-      } else if (city) {
-        params.q = `${city},SN`; // Forcer Sénégal
-      } else {
-        params.lat = this.defaultLocation.lat;
-        params.lon = this.defaultLocation.lon;
-      }
-
-      const response = await axios.get(`${this.baseURL}/weather`, {
-        params,
-        timeout: 10000
-      });
-
-      const weatherData = this.formatWeatherData(response.data);
-      
-      // Ajouter analyse qualité air/météo
-      weatherData.airQualityImpact = this.analyzeAirQualityImpact(weatherData);
-      
-      console.log(`🌤️ Météo récupérée pour ${weatherData.location.name}`);
-      
-      return {
-        success: true,
-        data: weatherData
-      };
-
-    } catch (error) {
-      console.error('❌ Erreur récupération météo:', error.message);
-      
-      if (error.response?.status === 401) {
-        return {
-          success: false,
-          error: 'Clé API invalide',
-          recommendation: 'Vérifiez votre OPENWEATHER_API_KEY'
-        };
-      }
-      
+  try {
+    if (!this.apiKey) {
       return {
         success: false,
-        error: 'Erreur lors de la récupération météo',
+        error: 'Clé API OpenWeather manquante',
+        recommendation: 'Configurez OPENWEATHER_API_KEY dans .env'
+      };
+    }
+
+    let params = {
+      appid: this.apiKey,
+      units: 'metric',
+      lang: 'fr'
+    };
+
+    // ✅ CORRECTION : Déterminer la localisation de manière plus robuste
+    if (lat && lon) {
+      // Priorité aux coordonnées GPS (plus fiable)
+      params.lat = lat;
+      params.lon = lon;
+    } else if (city) {
+      // ✅ Vérifier si la ville existe dans nos villes configurées
+      const knownCity = this.sensorCities.find(
+        c => c.name.toLowerCase() === city.toLowerCase()
+      );
+      
+      if (knownCity) {
+        // Utiliser les coordonnées de notre base de données
+        params.lat = knownCity.lat;
+        params.lon = knownCity.lon;
+        console.log(`📍 Ville trouvée dans la base: ${knownCity.name}`);
+      } else {
+        // Sinon essayer avec le nom (peut échouer)
+        params.q = `${city},SN`;
+        console.log(`🔍 Recherche par nom: ${city}`);
+      }
+    } else {
+      // Par défaut : Dakar
+      params.lat = this.defaultLocation.lat;
+      params.lon = this.defaultLocation.lon;
+    }
+
+    console.log('🌤️ Paramètres météo:', params);
+
+    const response = await axios.get(`${this.baseURL}/weather`, {
+      params,
+      timeout: 10000
+    });
+
+    const weatherData = this.formatWeatherData(response.data);
+    
+    // Ajouter analyse qualité air/météo
+    weatherData.airQualityImpact = this.analyzeAirQualityImpact(weatherData);
+    
+    console.log(`✅ Météo récupérée pour ${weatherData.location.name}`);
+    
+    return {
+      success: true,
+      data: weatherData
+    };
+
+  } catch (error) {
+    console.error('❌ Erreur récupération météo:', error.message);
+    
+    if (error.response?.status === 401) {
+      return {
+        success: false,
+        error: 'Clé API invalide',
+        recommendation: 'Vérifiez votre OPENWEATHER_API_KEY'
+      };
+    }
+    
+    if (error.response?.status === 400) {
+      return {
+        success: false,
+        error: 'Ville non trouvée ou paramètres invalides',
         details: error.message
       };
     }
+    
+    return {
+      success: false,
+      error: 'Erreur lors de la récupération météo',
+      details: error.message
+    };
   }
+}
 
   // 📅 Prévisions météo 5 jours
   async getForecast(city = null, lat = null, lon = null, days = 5) {

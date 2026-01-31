@@ -222,7 +222,7 @@ router.get('/stats', authService.authenticateToken.bind(authService), async (req
     };
 
     // 🆕 Calcul du niveau de risque global
-    const globalRiskLevel = this.calculateGlobalRisk(summaryData);
+    const globalRiskLevel = calculateGlobalRisk(summaryData);
     
     res.json({
       success: true,
@@ -239,7 +239,7 @@ router.get('/stats', authService.authenticateToken.bind(authService), async (req
           criticalAlertsRatio: summaryData.total > 0 ? 
             ((summaryData.hazardous + summaryData.unhealthy) / summaryData.total * 100).toFixed(1) + '%' : '0%',
           activeHealthAlerts: summaryData.hazardous + summaryData.unhealthy,
-          recommendation: this.getGlobalRecommendation(globalRiskLevel)
+          recommendation: getGlobalRecommendation(globalRiskLevel)
         }
       },
       // 🆕 Métadonnées standards
@@ -253,21 +253,35 @@ router.get('/stats', authService.authenticateToken.bind(authService), async (req
     
   } catch (error) {
     console.error('❌ Erreur stats alertes:', error.message);
+    console.error('Stack:', error.stack); // ✅ AJOUTÉ pour debug
     res.status(500).json({
       success: false,
-      message: 'Erreur lors du calcul des statistiques'
+      message: 'Erreur lors du calcul des statistiques',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
 
-// Fonctions utilitaires pour les stats
-router.calculateGlobalRisk = function(stats) {
+// ✅ Fonctions utilitaires (définies AVANT le router.get)
+function calculateGlobalRisk(stats) {
   if (stats.hazardous > 0) return 'hazardous';
   if (stats.unhealthy > 0) return 'unhealthy';
   if (stats.poor > 0) return 'poor';
   if (stats.moderate > 0) return 'moderate';
   return 'good';
-};
+}
+
+function getGlobalRecommendation(riskLevel) {
+  const recommendations = {
+    'hazardous': 'Évitez toute activité extérieure. Restez à l\'intérieur avec purificateur d\'air.',
+    'unhealthy': 'Limitez fortement les activités extérieures. Groupes sensibles doivent rester à l\'intérieur.',
+    'poor': 'Réduisez les activités extérieures prolongées. Groupes sensibles: attention.',
+    'moderate': 'Acceptable pour la plupart. Groupes sensibles: limitez les efforts prolongés.',
+    'good': 'Qualité de l\'air satisfaisante. Aucune restriction.'
+  };
+  
+  return recommendations[riskLevel] || 'Données insuffisantes pour évaluation.';
+}
 
 router.getGlobalRecommendation = function(riskLevel) {
   const recommendations = {

@@ -1,29 +1,37 @@
-// services/SchedulerService.js - NIVEAUX DE SÉVÉRITÉ CORRIGÉS + MÉTÉO INTÉGRÉE
+// services/SchedulerService.js - ALERTES INTELLIGENTES INTÉGRÉES + MÉTÉO
 const cron = require('node-cron');
 const AirGradientService = require('./AirGradientService');
 const AlertService = require('./AlertService');
+const EnhancedAlertService = require('./EnhancedAlertService'); 
 const PredictionService = require('./PredictionService');
-const WeatherService = require('./WeatherService'); // 🌤️ Import service météo
+const WeatherService = require('./WeatherService');
 const SensorData = require('../models/SensorData');
 const Alert = require('../models/Alert');
 const Prediction = require('../models/Prediction');
+const { translateWeatherAlertMessage, getHarmattanRecommendations } = require('./weather-translations');
+
 const { triggerAlert, AlertMiddleware } = require('../middleware/alertMiddleware');
 
 class SchedulerService {
   constructor() {
     this.airGradientService = new AirGradientService();
     this.alertService = new AlertService();
+    this.enhancedAlertService = new EnhancedAlertService(); 
     this.predictionService = new PredictionService();
-    this.weatherService = new WeatherService(); // 🌤️ Initialiser service météo
+    this.weatherService = new WeatherService();
     this.jobs = new Map();
     this.isRunning = false;
 
-    // ✅ Buffer de logs en mémoire (ajouté)
+    // Buffer de logs en mémoire
     this.executionLogs = [];
     this.MAX_LOGS = 500;
-  }
 
-  // ✅ Ajout log (ajouté)
+    this.PREDICTION_HOURS = 168; // 7 jours
+    this.REGENERATION_THRESHOLD = 72; // Régénérer si < 3 jours restants
+  }
+ 
+
+  // Ajout log
   addLog(level, message, meta = {}) {
     const entry = {
       ts: new Date().toISOString(),
@@ -38,7 +46,7 @@ class SchedulerService {
     return entry;
   }
 
-  // ✅ Exposer les logs (ajouté)
+  // Exposer les logs
   getExecutionLogs({ limit = 100, level } = {}) {
     const src = level ? this.executionLogs.filter(l => l.level === level) : this.executionLogs;
     const safeLimit = Math.max(1, Math.min(limit, this.MAX_LOGS));
@@ -48,16 +56,17 @@ class SchedulerService {
   // Initialiser tous les jobs programmés avec météo
   initialize() {
     if (this.isRunning) {
-      this.addLog('warn', 'Scheduler déjà en cours d’exécution');
+      this.addLog('warn', 'Scheduler deja en cours d execution');
       console.log('⚠️ Scheduler déjà en cours d\'exécution');
       return;
     }
 
-    this.addLog('info', 'Initialisation du scheduler avec IA et météo...');
-    console.log('🕐 Initialisation du scheduler avec IA et météo...');
+    this.addLog('info', 'Initialisation du scheduler COMPLET (IA + Météo + Alertes + Régénération 168h)');
+    console.log('🕐 Initialisation du scheduler COMPLET (IA + Météo + Alertes + Régénération 168h)...');
     
     this.setupSyncJob();
     this.setupPredictionJob();
+    this.setupWeeklyPredictionRegenerationJob();
     this.setupAlertCleanupJob();
     this.setupDataCleanupJob();
     this.setupPredictionCleanupJob();
@@ -65,163 +74,360 @@ class SchedulerService {
     this.setupStatsJob();
     this.setupAIHealthCheckJob();
     
-    // 🌤️ Nouveaux jobs météo
+    // Jobs météo
     this.setupWeatherUpdateJob();
     this.setupWeatherForecastJob();
     
     this.isRunning = true;
-    this.addLog('info', 'Scheduler initialisé avec succès (IA + Météo inclus)');
-    console.log('✅ Scheduler initialisé avec succès (IA + Météo inclus)');
+    this.addLog('info', 'Scheduler initialisé avec succès - TOUTES LES FONCTIONNALITÉS ACTIVES');
+    console.log(' Scheduler initialisé avec succès - TOUTES LES FONCTIONNALITÉS ACTIVES');
   }
 
-  // Job de synchronisation avec AirGradient - Toutes les  minutes
-  // Job de synchronisation avec AirGradient - Toutes les 45 secondes
-setupSyncJob() {
-  const job = cron.schedule('*/45 * * * * *', async () => {
-    const started = Date.now();
-    this.addLog('info', '🔄 Début synchronisation AirGradient');
-     
-    try {
-      console.log('🔄 Début synchronisation AirGradient...');
-               
-      const allSensorsData = await this.airGradientService.fetchAllSensorsData();
-      let savedCount = 0;
-      let alertCount = 0;
-               
-      for (const { location, data } of allSensorsData) {
-        try {
-          const transformedData = this.airGradientService.transformDataForStorage(data, location);
-                   
-          for (const sensorReading of transformedData) {
-            const existingData = await SensorData.findOne({
-              sensorId: sensorReading.sensorId,
-              timestamp: {
-                $gte: new Date(sensorReading.timestamp.getTime() - 5 * 60 * 1000),
-                $lte: new Date(sensorReading.timestamp.getTime() + 5 * 60 * 1000)
-              }
-            });
-                           
-            if (!existingData) {
-              const newData = new SensorData(sensorReading);
-              await newData.save();
-              savedCount++;
-                               
-              // Vérifier les alertes
-              const alerts = await this.alertService.checkAndCreateAlerts({
+  // ✅ MODIFIÉ: Job de synchronisation avec alertes intelligentes - Toutes les 45 secondes
+  setupSyncJob() {
+    const job = cron.schedule('*/45 * * * * *', async () => {
+      const started = Date.now();
+      this.addLog('info', '🔄 Début synchronisation AirGradient');
+       
+      try {
+        console.log('🔄 Début synchronisation AirGradient...');
+                 
+        const allSensorsData = await this.airGradientService.fetchAllSensorsData();
+        let savedCount = 0;
+        let alertCount = 0;
+        let standardAlertCount = 0;
+        let enhancedAlertCount = 0;
+                 
+        for (const { location, data } of allSensorsData) {
+          try {
+            const transformedData = this.airGradientService.transformDataForStorage(data, location);
+                     
+            for (const sensorReading of transformedData) {
+              const existingData = await SensorData.findOne({
                 sensorId: sensorReading.sensorId,
-                measurements: sensorReading.measurements,
-                location: sensorReading.location
+                timestamp: {
+                  $gte: new Date(sensorReading.timestamp.getTime() - 5 * 60 * 1000),
+                  $lte: new Date(sensorReading.timestamp.getTime() + 5 * 60 * 1000)
+                }
               });
-                               
-              if (alerts && alerts.length > 0) {
-                alertCount += alerts.length;
-                alerts.forEach(alert => {
-                  if (alert && alert._id) {
-                    triggerAlert(alert);
-                  }
+                             
+              if (!existingData) {
+                const newData = new SensorData(sensorReading);
+                await newData.save();
+                savedCount++;
+                
+                // ✅ 1️⃣ Alertes standards (WHO/EPA)
+                const standardAlerts = await this.alertService.checkAndCreateAlerts({
+                  sensorId: sensorReading.sensorId,
+                  measurements: sensorReading.measurements,
+                  location: sensorReading.location
                 });
+                
+                // ✅ 2️⃣ Alertes intelligentes (pics, variations, zones à risque)
+                let enhancedAlerts = [];
+                try {
+                  enhancedAlerts = await this.enhancedAlertService.analyzeAndCreateAlerts(
+                    sensorReading.sensorId,
+                    sensorReading.location?.name || sensorReading.sensorId,
+                    sensorReading.location?.city || 'Dakar',
+                    sensorReading.measurements
+                  );
+                } catch (error) {
+                  console.error('❌ Erreur alertes intelligentes:', error.message);
+                  this.addLog('error', 'Erreur alertes intelligentes', { 
+                    sensorId: sensorReading.sensorId, 
+                    error: error.message 
+                  });
+                }
+                
+                // ✅ 3️⃣ Combiner et diffuser TOUTES les alertes
+                const allAlerts = [
+                  ...(standardAlerts || []),
+                  ...(enhancedAlerts || [])
+                ];
+                
+                if (allAlerts.length > 0) {
+                  alertCount += allAlerts.length;
+                  standardAlertCount += (standardAlerts || []).length;
+                  enhancedAlertCount += (enhancedAlerts || []).length;
+                  
+                  allAlerts.forEach(alert => {
+                    if (alert && alert._id) {
+                      triggerAlert(alert);
+                    }
+                  });
+                  
+                  // Log détaillé des alertes créées
+                  if (enhancedAlerts.length > 0) {
+                    console.log(`🎯 ${enhancedAlerts.length} alertes intelligentes créées pour ${sensorReading.location?.name || sensorReading.sensorId}`);
+                  }
+                }
               }
             }
+                       
+          } catch (error) {
+            console.error(`❌ Erreur traitement ${location.name}:`, error.message);
+            this.addLog('error', `Erreur traitement ${location.name}`, { error: error.message });
           }
-                     
+        }
+                 
+        const syncMsg = `✅ Sync terminée: ${savedCount} enregistrements, ${alertCount} alertes (${standardAlertCount} standard + ${enhancedAlertCount} intelligente)`;
+        console.log(syncMsg);
+        this.addLog('info', syncMsg, { 
+          duration_ms: Date.now() - started, 
+          savedCount, 
+          alertCount,
+          standardAlertCount,
+          enhancedAlertCount
+        });
+        this.broadcastSystemUpdate();
+                 
+      } catch (error) {
+        console.error('❌ Erreur synchronisation programmée:', error.message);
+        this.addLog('error', 'Erreur synchronisation programmée', { error: error.message });
+      }
+    }, {
+      scheduled: false
+    });
+         
+    this.jobs.set('sync', job);
+    job.start();
+    this.addLog('info', '- Job synchronisation AirGradient programmé (toutes les 45 secondes)');
+    console.log('- Job synchronisation AirGradient programmé (toutes les 45 secondes)');
+  }
+
+  // Job de génération de prédictions IA - Toutes les heures
+  setupPredictionJob() {
+  const job = cron.schedule('0 */6 * * *', async () => {  // ✅ Changé de '0 * * * *' à '0 */6 * * *'
+    const started = Date.now();
+    this.addLog('info', '🤖 Début génération prédictions IA complètes (168h)');  // ✅ Changé le message
+
+    try {
+      console.log('🤖 Début génération prédictions IA complètes (168h)...');  // ✅ Changé le message
+      
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const activeSensors = await SensorData.distinct('sensorId', {
+        timestamp: { $gte: twoHoursAgo }
+      });
+      
+      let successCount = 0;
+      let errorCount = 0;
+      let totalPredictions = 0;
+      let alertsGenerated = 0;
+      let skippedCount = 0;  // ✅ Ajouté
+      
+      for (const sensorId of activeSensors) {
+        try {
+          // ✅ NOUVEAU : Vérifier d'abord si des prédictions récentes existent
+          const existingPredictions = await Prediction.countDocuments({
+            sensorId,
+            predictionFor: { $gte: new Date() },
+            createdAt: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } // Créées dans les 6 dernières heures
+          });
+
+          // Si le capteur a déjà suffisamment de prédictions, on skip
+          if (existingPredictions >= this.REGENERATION_THRESHOLD) {
+            console.log(`⏭️ ${sensorId}: ${existingPredictions} prédictions récentes, skip`);
+            skippedCount++;
+            continue;
+          }
+
+          // ✅ Génère 168h au lieu de 6h
+          const result = await this.predictionService.generatePrediction(sensorId, 168);  // ✅ Changé de 6 à 168
+          
+          if (result.success && result.predictions) {
+            successCount++;
+            totalPredictions += result.predictions.length;
+            
+            const alerts = await this.checkPredictiveAlerts(sensorId, result.predictions);
+            alertsGenerated += alerts;
+            
+            console.log(`✅ ${result.predictions.length} prédictions (7 jours) pour ${sensorId}`);  // ✅ Changé le message
+          } else {
+            errorCount++;
+          }
+          
+          // ✅ Délai plus long entre capteurs (service IA plus sollicité)
+          await new Promise(resolve => setTimeout(resolve, 3000));  // ✅ Changé de 2000 à 3000
+          
         } catch (error) {
-          console.error(`❌ Erreur traitement ${location.name}:`, error.message);
-          this.addLog('error', `Erreur traitement ${location.name}`, { error: error.message });
+          errorCount++;
+          console.error(`❌ Erreur prédiction ${sensorId}:`, error.message);  // ✅ Changé le message
         }
       }
-               
-      console.log(`✅ Sync terminée: ${savedCount} nouveaux enregistrements, ${alertCount} alertes`);
-      this.addLog('info', '✅ Sync terminée', { duration_ms: Date.now() - started, savedCount, alertCount });
-      this.broadcastSystemUpdate();
-               
+      
+      console.log(`🤖 Prédictions complètes terminées: ${successCount}/${activeSensors.length} capteurs, ${skippedCount} ignorés`);  // ✅ Changé le message
+      this.addLog('info', '🤖 Prédictions complètes terminées', {  // ✅ Changé le message
+        duration_ms: Date.now() - started,
+        successCount, 
+        errorCount, 
+        skippedCount,  // ✅ Ajouté
+        totalPredictions, 
+        alertsGenerated
+      });
+      
+      this.broadcastPredictionStats();
+      
     } catch (error) {
-      console.error('❌ Erreur synchronisation programmée:', error.message);
-      this.addLog('error', 'Erreur synchronisation programmée', { error: error.message });
+      console.error('❌ Erreur job prédictions complètes:', error.message);  // ✅ Changé le message
+      this.addLog('error', 'Erreur job prédictions complètes', { error: error.message });  // ✅ Changé le message
     }
   }, {
     scheduled: false
   });
-       
-  this.jobs.set('sync', job);
+  
+  this.jobs.set('predictions', job);
   job.start();
-  this.addLog('info', '📅 Job synchronisation AirGradient programmé (toutes les 45 secondes)');
-  console.log('📅 Job synchronisation AirGradient programmé (toutes les 45 secondes)');
+  this.addLog('info', '- Job prédictions IA complètes programmé (toutes les 6 heures)');  // ✅ Changé le message
+  console.log('✅ Job prédictions IA complètes (168h) programmé (toutes les 6 heures)');  // ✅ Changé le message
 }
 
-  // Job de génération de prédictions IA - Toutes les heures
-  setupPredictionJob() {
-    const job = cron.schedule('0 * * * *', async () => {
+  // ✅ NOUVEAU: Job de régénération automatique des prédictions 168h - Tous les jours à 2h
+  setupWeeklyPredictionRegenerationJob() {
+    const job = cron.schedule('0 2 * * *', async () => {
       const started = Date.now();
-      this.addLog('info', '🤖 Début génération prédictions IA');
+      this.addLog('info', '🔄 Début régénération automatique prédictions 168h');
 
       try {
-        console.log('🤖 Début génération prédictions IA...');
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log('🤖 RÉGÉNÉRATION AUTOMATIQUE DES PRÉDICTIONS 7 JOURS');
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        console.log(`📅 ${new Date().toLocaleString('fr-FR')}\n`);
         
-        // Récupérer les capteurs actifs (données dans les dernières 2 heures)
         const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
         const activeSensors = await SensorData.distinct('sensorId', {
           timestamp: { $gte: twoHoursAgo }
         });
         
-        let successCount = 0;
-        let errorCount = 0;
-        let totalPredictions = 0;
-        let alertsGenerated = 0;
+        console.log(`📡 ${activeSensors.length} capteurs actifs trouvés\n`);
         
-        for (const sensorId of activeSensors) {
+        const results = {
+          total: activeSensors.length,
+          upToDate: 0,
+          regenerated: 0,
+          failed: 0,
+          details: []
+        };
+        
+        for (let i = 0; i < activeSensors.length; i++) {
+          const sensorId = activeSensors[i];
+          console.log(`[${i + 1}/${activeSensors.length}] 📍 ${sensorId}`);
+          
           try {
-            // Générer prédictions pour les 6 prochaines heures
-            const result = await this.predictionService.generatePrediction(sensorId, 6);
+            // Compter les prédictions futures restantes
+            const now = new Date();
+            const futurePredictions = await Prediction.countDocuments({
+              sensorId: sensorId,
+              predictionFor: { $gt: now }
+            });
             
-            if (result.success && result.predictions) {
-              successCount++;
-              totalPredictions += result.predictions.length;
+            console.log(`   📊 Prédictions restantes: ${futurePredictions}/${this.PREDICTION_HOURS} (seuil: ${this.REGENERATION_THRESHOLD}h)`);
+            
+            // Si moins de 3 jours restants → régénérer
+            if (futurePredictions < this.REGENERATION_THRESHOLD) {
+              console.log(`   🔄 Régénération nécessaire (< ${this.REGENERATION_THRESHOLD}h)...`);
               
-              // Vérifier les alertes prédictives
-              const alerts = await this.checkPredictiveAlerts(sensorId, result.predictions);
-              alertsGenerated += alerts;
+              const result = await this.predictionService.generatePrediction(
+                sensorId,
+                this.PREDICTION_HOURS
+              );
               
-              console.log(`✅ ${result.predictions.length} prédictions générées pour ${sensorId}`);
+              if (result.success && result.predictions) {
+                results.regenerated++;
+                console.log(`   ✅ ${result.predictions.length} nouvelles prédictions générées`);
+                console.log(`      📈 PM2.5 moyen: ${result.avgPM25?.toFixed(1) || 'N/A'}`);
+                console.log(`      🎯 Confiance moyenne: ${((result.avgConfidence || 0) * 100).toFixed(1)}%\n`);
+                
+                results.details.push({
+                  sensorId,
+                  regenerated: true,
+                  count: result.predictions.length,
+                  avgPM25: result.avgPM25,
+                  avgConfidence: result.avgConfidence
+                });
+                
+                // Vérifier alertes prédictives
+                await this.checkPredictiveAlerts(sensorId, result.predictions);
+              } else {
+                results.failed++;
+                console.log(`   ❌ Échec régénération: ${result.message}\n`);
+                
+                results.details.push({
+                  sensorId,
+                  regenerated: false,
+                  error: result.message
+                });
+              }
+              
             } else {
-              errorCount++;
-              console.log(`⚠️ Échec prédiction pour ${sensorId}: ${result.message}`);
+              results.upToDate++;
+              console.log(`   ✅ Prédictions suffisantes (${futurePredictions}/${this.PREDICTION_HOURS})\n`);
+              
+              results.details.push({
+                sensorId,
+                skipped: true,
+                existingCount: futurePredictions
+              });
             }
             
-            // Délai pour éviter la surcharge
-            await new Promise(resolve => setTimeout(resolve, 2000));
+            // Délai entre capteurs pour ne pas surcharger le service IA
+            if (i < activeSensors.length - 1) {
+              await new Promise(resolve => setTimeout(resolve, 3000));
+            }
             
           } catch (error) {
-            errorCount++;
-            console.error(`❌ Erreur prédiction ${sensorId}:`, error.message);
-            this.addLog('error', 'Erreur prédiction capteur', { sensorId, error: error.message });
+            results.failed++;
+            console.error(`   ❌ Erreur: ${error.message}\n`);
+            
+            results.details.push({
+              sensorId,
+              regenerated: false,
+              error: error.message
+            });
           }
         }
         
-        console.log(`🤖 Prédictions terminées: ${successCount}/${activeSensors.length} capteurs, ${totalPredictions} prédictions, ${alertsGenerated} alertes`);
-        this.addLog('info', '🤖 Prédictions terminées', {
+        // Rapport final
+        console.log('\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+        console.log(' RÉSUMÉ DE LA RÉGÉNÉRATION');
+        console.log(`   Total capteurs: ${results.total}`);
+        console.log(`    Déjà à jour: ${results.upToDate}`);
+        console.log(`    Régénérés: ${results.regenerated}`);
+        console.log(`    Échecs: ${results.failed}`);
+        console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n');
+        
+        this.addLog('info', '🤖 Régénération 168h terminée', {
           duration_ms: Date.now() - started,
-          activeSensors: activeSensors.length,
-          successCount, errorCount, totalPredictions, alertsGenerated
+          ...results
         });
         
-        // Diffuser les statistiques mises à jour
+        // Broadcast mise à jour
         this.broadcastPredictionStats();
         
+        if (AlertMiddleware) {
+          AlertMiddleware.broadcastSystemStats({
+            type: 'prediction_regeneration',
+            message: `Régénération 7 jours: ${results.regenerated} capteurs mis à jour`,
+            results: results,
+            timestamp: new Date()
+          });
+        }
+        
       } catch (error) {
-        console.error('❌ Erreur job prédictions:', error.message);
-        this.addLog('error', 'Erreur job prédictions', { error: error.message });
+        console.error('❌ Erreur job régénération 168h:', error.message);
+        this.addLog('error', 'Erreur job régénération 168h', { error: error.message });
       }
     }, {
       scheduled: false
     });
     
-    this.jobs.set('predictions', job);
+    this.jobs.set('weeklyPredictionRegeneration', job);
     job.start();
-    this.addLog('info', '📅 Job prédictions IA programmé (toutes les heures)');
-    console.log('📅 Job prédictions IA programmé (toutes les heures)');
+    this.addLog('info', `- Job régénération 168h programmé (2h00 tous les jours, seuil: ${this.REGENERATION_THRESHOLD}h)`);
+    console.log(` Job régénération 168h programmé (2h00 tous les jours, seuil: ${this.REGENERATION_THRESHOLD}h)`);
   }
 
-  // 🌤️ Job de mise à jour météo - Toutes les 30 minutes
+  // Job de mise à jour météo - Toutes les 30 minutes
   setupWeatherUpdateJob() {
     const job = cron.schedule('*/30 * * * *', async () => {
       const started = Date.now();
@@ -230,14 +436,12 @@ setupSyncJob() {
       try {
         console.log('🌤️ Mise à jour météo programmée...');
         
-        // Récupérer météo pour toutes les villes
         const weatherData = await this.weatherService.getWeatherForAllSensorCities();
         
         if (weatherData.success) {
           let alertsCreated = 0;
           const impacts = [];
           
-          // Analyser impact sur qualité air pour chaque ville
           for (const cityWeather of weatherData.data) {
             if (cityWeather.success) {
               const impact = this.weatherService.analyzeAirQualityImpact(cityWeather.data);
@@ -254,13 +458,11 @@ setupSyncJob() {
                 timestamp: new Date()
               });
               
-              // Créer alertes météo si conditions défavorables
               const weatherAlerts = await this.checkWeatherAirQualityAlerts(cityWeather.data, cityWeather.city);
               alertsCreated += weatherAlerts.length;
             }
           }
           
-          // Diffuser via WebSocket
           if (AlertMiddleware) {
             AlertMiddleware.broadcastSystemStats({
               type: 'weather_update',
@@ -292,11 +494,11 @@ setupSyncJob() {
     
     this.jobs.set('weatherUpdate', job);
     job.start();
-    this.addLog('info', '📅 Job mise à jour météo programmé (toutes les 30 minutes)');
-    console.log('📅 Job mise à jour météo programmé (toutes les 30 minutes)');
+    this.addLog('info', '- Job mise à jour météo programmé (toutes les 30 minutes)');
+    console.log('- Job mise à jour météo programmé (toutes les 30 minutes)');
   }
 
-  // 🌤️ Job de prévisions météo avancées - Tous les jours à 6h
+  // Job de prévisions météo avancées - Tous les jours à 6h
   setupWeatherForecastJob() {
     const job = cron.schedule('0 6 * * *', async () => {
       const started = Date.now();
@@ -310,18 +512,15 @@ setupSyncJob() {
         
         for (const city of this.weatherService.sensorCities) {
           try {
-            // Prévisions 5 jours
             const forecast = await this.weatherService.getForecast(city.name, null, null, 5);
             
             if (forecast.success) {
               totalForecasts++;
               
-              // Analyser prévisions pour alertes préventives
               const preventiveAlerts = await this.analyzeForecastForAlerts(city.name, forecast.data);
               alertsCreated += preventiveAlerts.length;
             }
             
-            // Délai entre villes
             await new Promise(resolve => setTimeout(resolve, 2000));
             
           } catch (error) {
@@ -347,11 +546,11 @@ setupSyncJob() {
     
     this.jobs.set('weatherForecast', job);
     job.start();
-    this.addLog('info', '📅 Job prévisions météo programmé (6h00 tous les jours)');
-    console.log('📅 Job prévisions météo programmé (6h00 tous les jours)');
+    this.addLog('info', '- Job prévisions météo programmé (6h00 tous les jours)');
+    console.log('- Job prévisions météo programmé (6h00 tous les jours)');
   }
 
-  // 🌤️ Vérifier alertes météo/qualité air
+  // Vérifier alertes météo/qualité air
   async checkWeatherAirQualityAlerts(weatherData, cityName) {
     const alerts = [];
     
@@ -361,10 +560,13 @@ setupSyncJob() {
       const pressure = weatherData.current.pressure;
       const temperature = weatherData.current.temperature;
       
-      // 1️⃣ Alerte conditions stagnantes (vent faible + humidité élevée)
+      // ✅ Normaliser le sensorId pour cohérence
+      const sensorId = `WEATHER_${cityName.toUpperCase().replace(/\s+/g, '-').replace(/É|È|Ê/g, 'E')}`;
+      
+      // 1️⃣ Alerte conditions stagnantes
       if (wind < 5 && humidity > 80) {
         const alertData = {
-          sensorId: `WEATHER_${cityName.toUpperCase()}`,
+          sensorId: sensorId,
           alertType: 'weather_air_quality',
           severity: 'poor',
           qualityLevel: 'poor',
@@ -375,7 +577,8 @@ setupSyncJob() {
               wind_speed_kmh: wind,
               humidity_percent: humidity,
               temperature_celsius: temperature,
-              impact: 'Dispersion réduite des polluants'
+              impact: 'Dispersion réduite des polluants',
+              city: cityName // ✅ Ajouté
             },
             healthInfo: {
               impact: 'Conditions favorables à l\'accumulation de pollution',
@@ -393,12 +596,11 @@ setupSyncJob() {
           }
         };
         
-        // Vérifier si alerte similaire existe déjà
         const existingAlert = await Alert.findOne({
           sensorId: alertData.sensorId,
           alertType: 'weather_air_quality',
           isActive: true,
-          createdAt: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) } // 4h
+          createdAt: { $gte: new Date(Date.now() - 4 * 60 * 60 * 1000) }
         });
         
         if (!existingAlert) {
@@ -410,10 +612,10 @@ setupSyncJob() {
         }
       }
       
-      // 2️⃣ Alerte vent fort (risque poussière)
+      // 2️⃣ Alerte vent fort
       if (wind > 30) {
         const alertData = {
-          sensorId: `WEATHER_${cityName.toUpperCase()}`,
+          sensorId: sensorId,
           alertType: 'weather_air_quality',
           severity: 'moderate',
           qualityLevel: 'moderate',
@@ -423,7 +625,8 @@ setupSyncJob() {
             weatherConditions: {
               wind_speed_kmh: wind,
               humidity_percent: humidity,
-              impact: 'Possible augmentation PM10/poussière'
+              impact: 'Possible augmentation PM10/poussière',
+              city: cityName // ✅ Ajouté
             },
             healthInfo: {
               impact: 'Risque d\'augmentation des particules en suspension',
@@ -446,7 +649,7 @@ setupSyncJob() {
           alertType: 'weather_air_quality',
           isActive: true,
           'data.weatherConditions.wind_speed_kmh': { $gte: 25 },
-          createdAt: { $gte: new Date(Date.now() - 2 * 60 * 60 * 1000) } // 2h
+          createdAt: { $gte: new Date(Date.now() - 2 * 60 * 60 * 1000) }
         });
         
         if (!existingWindAlert) {
@@ -458,10 +661,10 @@ setupSyncJob() {
         }
       }
       
-      // 3️⃣ Alerte chaleur extrême + humidité (stress thermique)
+      // 3️⃣ Alerte chaleur extrême
       if (temperature > 35 && humidity > 70) {
         const alertData = {
-          sensorId: `WEATHER_${cityName.toUpperCase()}`,
+          sensorId: sensorId,
           alertType: 'weather_air_quality',
           severity: 'unhealthy',
           qualityLevel: 'poor',
@@ -472,7 +675,8 @@ setupSyncJob() {
               temperature_celsius: temperature,
               humidity_percent: humidity,
               heat_index: this.calculateHeatIndex(temperature, humidity),
-              impact: 'Formation accrue d\'ozone et stress respiratoire'
+              impact: 'Formation accrue d\'ozone et stress respiratoire',
+              city: cityName // ✅ Ajouté
             },
             healthInfo: {
               impact: 'Conditions favorables à la pollution photochimique',
@@ -482,6 +686,9 @@ setupSyncJob() {
                 'Groupes sensibles: restez en intérieur climatisé'
               ],
               sensitiveGroups: ['Enfants', 'Personnes âgées', 'Asthmatiques', 'Cardiaques']
+            },
+            environmentalContext: {
+              city: cityName
             }
           }
         };
@@ -491,7 +698,7 @@ setupSyncJob() {
           alertType: 'weather_air_quality',
           isActive: true,
           'data.weatherConditions.temperature_celsius': { $gte: 33 },
-          createdAt: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } // 6h
+          createdAt: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) }
         });
         
         if (!existingHeatAlert) {
@@ -503,32 +710,30 @@ setupSyncJob() {
         }
       }
       
-      // 4️⃣ Alerte Harmattan spéciale (saison sèche)
+      // 4️⃣ Alerte Harmattan - ✅ AVEC TRADUCTIONS
       if (this.weatherService.isHarmattanSeason() && wind > 15 && humidity < 30) {
         const alertData = {
-          sensorId: `WEATHER_${cityName.toUpperCase()}`,
+          sensorId: sensorId,
           alertType: 'weather_air_quality',
           severity: 'poor',
           qualityLevel: 'poor',
           referenceStandard: 'METEOROLOGICAL',
-          message: `🌪️ Conditions Harmattan actives à ${cityName} - Poussière sahélienne attendue`,
+          message: translateWeatherAlertMessage('harmattan_warning', cityName), // ✅ Message traduit
           data: {
             weatherConditions: {
               wind_speed_kmh: wind,
               humidity_percent: humidity,
               season: 'harmattan',
-              impact: 'Transport de poussière depuis le Sahara'
+              impact: 'Transport de poussière depuis le Sahara',
+              city: cityName // ✅ Ajouté
             },
             healthInfo: {
               impact: 'Augmentation significative des particules PM2.5 et PM10',
-              recommendations: [
-                'Fermez les fenêtres lors des pics de vent',
-                'Masque recommandé pour les sorties prolongées',
-                'Surveillance renforcée de la qualité de l\'air',
-                'Hydratation importante (air très sec)'
-              ]
+              recommendations: getHarmattanRecommendations(), // ✅ Recommandations traduites
+              sensitiveGroups: ['Enfants', 'Personnes âgées', 'Asthmatiques', 'Personnes avec maladies respiratoires']
             },
             environmentalContext: {
+              city: cityName,
               harmattan: true,
               dust_source: 'Sahara',
               expected_duration: '48-72h'
@@ -541,7 +746,7 @@ setupSyncJob() {
           alertType: 'weather_air_quality',
           isActive: true,
           'data.environmentalContext.harmattan': true,
-          createdAt: { $gte: new Date(Date.now() - 12 * 60 * 60 * 1000) } // 12h
+          createdAt: { $gte: new Date(Date.now() - 12 * 60 * 60 * 1000) }
         });
         
         if (!existingHarmattanAlert) {
@@ -549,6 +754,7 @@ setupSyncJob() {
           if (savedAlert) {
             triggerAlert(savedAlert);
             alerts.push(savedAlert);
+            console.log(`🌪️ Alerte Harmattan créée: ${alertData.message}`); // ✅ Log
           }
         }
       }
@@ -561,17 +767,15 @@ setupSyncJob() {
     return alerts;
   }
 
-  // 🌤️ Analyser prévisions pour créer alertes préventives
+  // Analyser prévisions pour alertes préventives
   async analyzeForecastForAlerts(cityName, forecastData) {
     const alerts = [];
     
     try {
-      // Analyser les 3 prochains jours
       for (const day of forecastData.daily.slice(0, 3)) {
         const date = new Date(day.date);
         const hoursAhead = Math.round((date - new Date()) / (60 * 60 * 1000));
         
-        // Conditions météo défavorables prévues
         if (day.wind.avg_speed < 8 && day.humidity.avg > 75) {
           const alertData = {
             sensorId: `WEATHER_FORECAST_${cityName.toUpperCase()}`,
@@ -579,7 +783,7 @@ setupSyncJob() {
             severity: 'moderate',
             qualityLevel: 'moderate',
             referenceStandard: 'METEOROLOGICAL',
-            message: `📅 Prévision météo défavorable à ${cityName} pour ${day.date} - Conditions de stagnation attendues`,
+            message: `- Prévision météo défavorable à ${cityName} pour ${day.date} - Conditions de stagnation attendues`,
             data: {
               forecastDate: day.date,
               hoursAhead: hoursAhead,
@@ -597,11 +801,10 @@ setupSyncJob() {
                 ]
               },
               isPredictive: true,
-              expiresAt: new Date(date.getTime() + 24 * 60 * 60 * 1000) // Expire après la journée prévue
+              expiresAt: new Date(date.getTime() + 24 * 60 * 60 * 1000)
             }
           };
           
-          // Vérifier doublons
           const existingForecastAlert = await Alert.findOne({
             sensorId: alertData.sensorId,
             alertType: 'weather_forecast_warning',
@@ -613,7 +816,6 @@ setupSyncJob() {
             const savedAlert = await this.alertService.saveAlert(alertData);
             if (savedAlert) {
               alerts.push(savedAlert);
-              // Pas de triggerAlert immédiat pour les prévisions (moins urgent)
             }
           }
         }
@@ -627,7 +829,7 @@ setupSyncJob() {
     return alerts;
   }
 
-  // 🌤️ Calculer indice de chaleur
+  // Calculer indice de chaleur
   calculateHeatIndex(tempC, humidity) {
     const tempF = (tempC * 9/5) + 32;
     
@@ -641,10 +843,10 @@ setupSyncJob() {
       0.00085282 * tempF * humidity * humidity - 
       0.00000199 * tempF * tempF * humidity * humidity;
     
-    return Math.round((hi - 32) * 5/9); // Convertir en Celsius
+    return Math.round((hi - 32) * 5/9);
   }
 
-  // 🔧 CORRIGÉ: Job de vérification santé du service IA avec nouveaux niveaux
+  // Job de vérification santé IA
   setupAIHealthCheckJob() {
     const job = cron.schedule('*/30 * * * *', async () => {
       const started = Date.now();
@@ -654,18 +856,17 @@ setupSyncJob() {
         const aiHealth = await this.predictionService.checkAIServiceHealth();
         
         if (!aiHealth.available) {
-          // Créer une alerte si le service IA est down
           const existingAlert = await Alert.findOne({
             alertType: 'ai_service_down',
             isActive: true,
-            createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) } // 1h
+            createdAt: { $gte: new Date(Date.now() - 60 * 60 * 1000) }
           });
           
           if (!existingAlert) {
             const aiDownAlert = {
               sensorId: 'SYSTEM',
               alertType: 'ai_service_down',
-              severity: 'poor', // 🔧 CORRIGÉ: 'poor' au lieu de 'medium'
+              severity: 'poor',
               qualityLevel: 'poor',
               referenceStandard: 'WHO_2021',
               message: '🤖 Service IA indisponible - Prédictions en mode dégradé',
@@ -685,7 +886,6 @@ setupSyncJob() {
           console.log('⚠️ Service IA indisponible:', aiHealth.error);
           this.addLog('warn', 'Service IA indisponible', { error: aiHealth.error, duration_ms: Date.now() - started });
         } else {
-          // Résoudre l'alerte si le service est de nouveau disponible
           await Alert.updateMany(
             {
               alertType: 'ai_service_down',
@@ -712,11 +912,11 @@ setupSyncJob() {
     
     this.jobs.set('aiHealthCheck', job);
     job.start();
-    this.addLog('info', '📅 Job vérification santé IA programmé (toutes les 30 minutes)');
-    console.log('📅 Job vérification santé IA programmé (toutes les 30 minutes)');
+    this.addLog('info', '- Job vérification santé IA programmé (toutes les 30 minutes)');
+    console.log('- Job vérification santé IA programmé (toutes les 30 minutes)');
   }
 
-  // Job de nettoyage des prédictions - Tous les jours à 1h
+  // Job de nettoyage prédictions
   setupPredictionCleanupJob() {
     const job = cron.schedule('0 1 * * *', async () => {
       const started = Date.now();
@@ -737,11 +937,11 @@ setupSyncJob() {
     
     this.jobs.set('predictionCleanup', job);
     job.start();
-    this.addLog('info', '📅 Job nettoyage prédictions programmé (1h00 tous les jours)');
-    console.log('📅 Job nettoyage prédictions programmé (1h00 tous les jours)');
+    this.addLog('info', '- Job nettoyage prédictions programmé (1h00 tous les jours)');
+    console.log('- Job nettoyage prédictions programmé (1h00 tous les jours)');
   }
 
-  // Jobs existants (alertCleanup, dataCleanup, healthCheck) - inchangées
+  // Job de nettoyage alertes
   setupAlertCleanupJob() {
     const job = cron.schedule('0 2 * * *', async () => {
       const started = Date.now();
@@ -762,10 +962,11 @@ setupSyncJob() {
     
     this.jobs.set('alertCleanup', job);
     job.start();
-    this.addLog('info', '📅 Job nettoyage alertes programmé (2h00 tous les jours)');
-    console.log('📅 Job nettoyage alertes programmé (2h00 tous les jours)');
+    this.addLog('info', '- Job nettoyage alertes programmé (2h00 tous les jours)');
+    console.log('- Job nettoyage alertes programmé (2h00 tous les jours)');
   }
 
+  // Job de nettoyage données
   setupDataCleanupJob() {
     const job = cron.schedule('0 3 * * 0', async () => {
       const started = Date.now();
@@ -789,11 +990,11 @@ setupSyncJob() {
     
     this.jobs.set('dataCleanup', job);
     job.start();
-    this.addLog('info', '📅 Job nettoyage données programmé (dimanche 3h00)');
-    console.log('📅 Job nettoyage données programmé (dimanche 3h00)');
+    this.addLog('info', '- Job nettoyage données programmé (dimanche 3h00)');
+    console.log('- Job nettoyage données programmé (dimanche 3h00)');
   }
 
-  // 🔧 CORRIGÉ: Health check avec nouveaux niveaux de sévérité
+  // Job de vérification santé capteurs
   setupHealthCheckJob() {
     const job = cron.schedule('0 * * * *', async () => {
       const started = Date.now();
@@ -823,7 +1024,7 @@ setupSyncJob() {
               const offlineAlert = {
                 sensorId: sensor.id,
                 alertType: 'sensor_offline',
-                severity: 'poor', // 🔧 CORRIGÉ: 'poor' au lieu de 'medium'
+                severity: 'poor',
                 qualityLevel: 'poor',
                 referenceStandard: 'WHO_2021',
                 message: `📡 Capteur hors ligne: ${sensor.name} (${sensor.city})`,
@@ -857,11 +1058,11 @@ setupSyncJob() {
     
     this.jobs.set('healthCheck', job);
     job.start();
-    this.addLog('info', '📅 Job vérification santé programmé (toutes les heures)');
-    console.log('📅 Job vérification santé programmé (toutes les heures)');
+    this.addLog('info', '- Job vérification santé programmé (toutes les heures)');
+    console.log('- Job vérification santé programmé (toutes les heures)');
   }
 
-  // 🔧 CORRIGÉ: Stats job avec nouveaux niveaux + météo
+  // Job de statistiques
   setupStatsJob() {
     const job = cron.schedule('*/5 * * * *', async () => {
       const started = Date.now();
@@ -870,7 +1071,6 @@ setupSyncJob() {
         const now = new Date();
         const last24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
         
-        // Stats alertes avec nouveaux niveaux
         const alertStats = await Alert.aggregate([
           { $match: { createdAt: { $gte: last24h } } },
           {
@@ -878,19 +1078,17 @@ setupSyncJob() {
               _id: null,
               total: { $sum: 1 },
               active: { $sum: { $cond: ['$isActive', 1, 0] } },
-              // 🔧 CORRIGÉ: Nouveaux niveaux de sévérité
               hazardous: { $sum: { $cond: [{ $eq: ['$severity', 'hazardous'] }, 1, 0] } },
               unhealthy: { $sum: { $cond: [{ $eq: ['$severity', 'unhealthy'] }, 1, 0] } },
               poor: { $sum: { $cond: [{ $eq: ['$severity', 'poor'] }, 1, 0] } },
               moderate: { $sum: { $cond: [{ $eq: ['$severity', 'moderate'] }, 1, 0] } },
               good: { $sum: { $cond: [{ $eq: ['$severity', 'good'] }, 1, 0] } },
               predictive: { $sum: { $cond: [{ $eq: ['$alertType', 'prediction_warning'] }, 1, 0] } },
-              weather_related: { $sum: { $cond: [{ $eq: ['$alertType', 'weather_air_quality'] }, 1, 0] } } // 🌤️
+              weather_related: { $sum: { $cond: [{ $eq: ['$alertType', 'weather_air_quality'] }, 1, 0] } }
             }
           }
         ]);
         
-        // Stats capteurs
         const sensorStats = await SensorData.aggregate([
           { $match: { timestamp: { $gte: last24h } } },
           {
@@ -903,7 +1101,6 @@ setupSyncJob() {
           }
         ]);
         
-        // Stats prédictions
         const predictionStats = await Prediction.aggregate([
           { $match: { createdAt: { $gte: last24h } } },
           {
@@ -918,7 +1115,6 @@ setupSyncJob() {
           }
         ]);
         
-        // 🌤️ Récupérer statut météo rapide
         let weatherStatus = { available: false };
         try {
           const weatherTest = await this.weatherService.testConnection();
@@ -936,7 +1132,7 @@ setupSyncJob() {
           alerts_24h: alertStats[0] || { 
             total: 0, active: 0, 
             hazardous: 0, unhealthy: 0, poor: 0, moderate: 0, good: 0,
-            predictive: 0, weather_related: 0 // 🌤️
+            predictive: 0, weather_related: 0
           },
           sensors: {
             total: sensorStats.length,
@@ -946,7 +1142,7 @@ setupSyncJob() {
             measurements_24h: sensorStats.reduce((sum, s) => sum + s.measurements, 0)
           },
           predictions: predictionStats[0] || { totalPredictions: 0, avgConfidence: 0, futurePredictions: 0 },
-          weather: weatherStatus, // 🌤️ Nouveau: stats météo
+          weather: weatherStatus,
           websocket_clients: AlertMiddleware ? AlertMiddleware.getConnectionStats().connectedClients : 0,
           system: {
             uptime: process.uptime(),
@@ -977,21 +1173,19 @@ setupSyncJob() {
     
     this.jobs.set('stats', job);
     job.start();
-    this.addLog('info', '📅 Job statistiques programmé (toutes les 5 minutes)');
-    console.log('📅 Job statistiques programmé (toutes les 5 minutes)');
+    this.addLog('info', '- Job statistiques programmé (toutes les 5 minutes)');
+    console.log('- Job statistiques programmé (toutes les 5 minutes)');
   }
 
-  // 🔧 CORRIGÉ: Méthodes utilitaires pour les prédictions avec nouveaux niveaux
+  // Vérifier alertes prédictives
   async checkPredictiveAlerts(sensorId, predictions) {
     let alertsCreated = 0;
     
     try {
       for (const prediction of predictions) {
-        // Seuil d'alerte prédictive
         if (prediction.predictedPM25 > 50 && prediction.confidence > 0.7) {
           const hoursAhead = Math.round((new Date(prediction.predictionFor) - new Date()) / (60 * 60 * 1000));
           
-          // 🔧 CORRIGÉ: Utiliser nouveaux niveaux de sévérité
           let severity, qualityLevel;
           if (prediction.predictedPM25 > 100) {
             severity = 'unhealthy';
@@ -1020,7 +1214,6 @@ setupSyncJob() {
             }
           };
           
-          // Vérifier doublons
           const existingAlert = await Alert.findOne({
             sensorId,
             alertType: 'prediction_warning',
@@ -1045,6 +1238,7 @@ setupSyncJob() {
     return alertsCreated;
   }
 
+  // Diffusions
   broadcastPredictionStats() {
     if (AlertMiddleware) {
       AlertMiddleware.broadcastSystemStats({
@@ -1070,7 +1264,6 @@ setupSyncJob() {
     }
   }
 
-  // 🌤️ Diffuser mise à jour météo
   broadcastWeatherUpdate(weatherData) {
     try {
       if (AlertMiddleware) {
@@ -1087,7 +1280,7 @@ setupSyncJob() {
     }
   }
 
-  // Méthodes existantes (stopAll, restartJob, etc.) - inchangées
+  // Arrêter tous les jobs
   stopAll() {
     console.log('🛑 Arrêt de tous les jobs programmés...');
     this.addLog('warn', 'Arrêt de tous les jobs programmés');
@@ -1104,6 +1297,7 @@ setupSyncJob() {
     this.addLog('info', 'Tous les jobs ont été arrêtés');
   }
 
+  // Status des jobs
   getJobsStatus() {
     const status = {};
     this.jobs.forEach((job, name) => {
@@ -1119,7 +1313,7 @@ setupSyncJob() {
     };
   }
 
-  // Exécution manuelle du job de prédictions
+  // Exécution manuelle prédictions
   async runPredictionJobManually() {
     console.log('🔧 Exécution manuelle du job prédictions...');
     this.addLog('info', 'Exécution manuelle du job prédictions');
@@ -1131,7 +1325,7 @@ setupSyncJob() {
       
       let results = [];
       
-      for (const sensorId of activeSensors.slice(0, 3)) { // Limiter à 3 capteurs pour le test
+      for (const sensorId of activeSensors.slice(0, 3)) {
         const result = await this.predictionService.generatePrediction(sensorId, 3);
         results.push({
           sensorId,
@@ -1149,7 +1343,7 @@ setupSyncJob() {
     }
   }
 
-  // 🌤️ Exécution manuelle du job météo
+  // Exécution manuelle météo
   async runWeatherJobManually() {
     console.log('🔧 Exécution manuelle du job météo...');
     this.addLog('info', 'Exécution manuelle du job météo');
@@ -1187,30 +1381,210 @@ setupSyncJob() {
     }
   }
 
-  // 🌤️ Méthode pour exécuter job spécifique manuellement (améliorée)
+  // ✅ NOUVEAU: Test alertes intelligentes
+  async runEnhancedAlertsTest() {
+    console.log('🎯 Test des alertes intelligentes...');
+    this.addLog('info', 'Test des alertes intelligentes');
+
+    try {
+      const recentData = await SensorData.find()
+        .sort({ timestamp: -1 })
+        .limit(10);
+      
+      if (recentData.length === 0) {
+        return {
+          success: false,
+          message: 'Aucune donnée disponible pour tester'
+        };
+      }
+      
+      let totalAlerts = 0;
+      const results = [];
+      
+      for (const data of recentData) {
+        try {
+          const alerts = await this.enhancedAlertService.analyzeAndCreateAlerts(
+            data.sensorId,
+            data.location?.name || data.sensorId,
+            data.location?.city || 'Dakar',
+            data.measurements
+          );
+          
+          if (alerts.length > 0) {
+            totalAlerts += alerts.length;
+            
+            results.push({
+              sensorId: data.sensorId,
+              location: data.location?.name,
+              city: data.location?.city,
+              pm25: data.measurements.pm25,
+              pm10: data.measurements.pm10,
+              co2: data.measurements.co2,
+              alerts_created: alerts.length,
+              alert_types: alerts.map(a => ({
+                type: a.alertType,
+                severity: a.severity,
+                message: a.message
+              }))
+            });
+            
+            alerts.forEach(alert => {
+              if (alert._id) {
+                triggerAlert(alert);
+              }
+            });
+            
+            console.log(`✅ ${alerts.length} alertes intelligentes pour ${data.location?.name || data.sensorId}`);
+          }
+        } catch (error) {
+          console.error(`❌ Erreur test ${data.sensorId}:`, error.message);
+          this.addLog('error', 'Erreur test alerte capteur', { 
+            sensorId: data.sensorId, 
+            error: error.message 
+          });
+        }
+      }
+      
+      console.log(`🎯 Test terminé: ${totalAlerts} alertes intelligentes créées sur ${recentData.length} capteurs`);
+      this.addLog('info', 'Test alertes intelligentes terminé', { 
+        totalAlerts, 
+        sensorsChecked: recentData.length 
+      });
+      
+      return {
+        success: true,
+        sensors_checked: recentData.length,
+        total_alerts: totalAlerts,
+        details: results,
+        summary: `${totalAlerts} alertes créées pour ${results.length} capteurs avec données critiques`
+      };
+      
+    } catch (error) {
+      console.error('❌ Erreur test alertes intelligentes:', error.message);
+      this.addLog('error', 'Erreur test alertes intelligentes', { error: error.message });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // ✅ NOUVEAU: Exécuter manuellement la régénération 168h
+  async runWeeklyRegenerationManually() {
+    console.log('🔧 Exécution manuelle régénération 168h...');
+    this.addLog('info', 'Exécution manuelle régénération 168h');
+
+    try {
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+      const activeSensors = await SensorData.distinct('sensorId', {
+        timestamp: { $gte: twoHoursAgo }
+      });
+      
+      const results = {
+        total: activeSensors.length,
+        upToDate: 0,
+        regenerated: 0,
+        failed: 0,
+        details: []
+      };
+      
+      for (const sensorId of activeSensors) {
+        try {
+          const now = new Date();
+          const futurePredictions = await Prediction.countDocuments({
+            sensorId: sensorId,
+            predictionFor: { $gt: now }
+          });
+          
+          if (futurePredictions < this.REGENERATION_THRESHOLD) {
+            const result = await this.predictionService.generatePrediction(
+              sensorId,
+              this.PREDICTION_HOURS
+            );
+            
+            if (result.success && result.predictions) {
+              results.regenerated++;
+              results.details.push({
+                sensorId,
+                regenerated: true,
+                count: result.predictions.length,
+                avgPM25: result.avgPM25,
+                avgConfidence: result.avgConfidence
+              });
+            } else {
+              results.failed++;
+              results.details.push({
+                sensorId,
+                regenerated: false,
+                error: result.message
+              });
+            }
+          } else {
+            results.upToDate++;
+            results.details.push({
+              sensorId,
+              skipped: true,
+              existingCount: futurePredictions
+            });
+          }
+          
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          
+        } catch (error) {
+          results.failed++;
+          results.details.push({
+            sensorId,
+            regenerated: false,
+            error: error.message
+          });
+        }
+      }
+      
+      return {
+        success: true,
+        message: `Régénération terminée: ${results.regenerated} capteurs mis à jour`,
+        results: results
+      };
+      
+    } catch (error) {
+      console.error('❌ Erreur régénération manuelle 168h:', error.message);
+      this.addLog('error', 'Erreur régénération manuelle 168h', { error: error.message });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // ✅ MODIFIÉ: Exécuter job manuellement
   async runJobManually(jobName) {
     console.log(`🔧 Exécution manuelle du job "${jobName}"...`);
-    this.addLog('info', 'Exécution manuelle d’un job', { jobName });
+    this.addLog('info', 'Exécution manuelle d\'un job', { jobName });
     
     try {
       switch (jobName) {
         case 'sync':
-          // Code sync existant...
           return { success: true, message: 'Synchronisation manuelle terminée' };
           
         case 'predictions':
           return await this.runPredictionJobManually();
+        
+        case 'weekly-regeneration': 
+          return await this.runWeeklyRegenerationManually();
           
-        case 'weather': // 🌤️ Nouveau
+        case 'weather':
           return await this.runWeatherJobManually();
           
-        case 'weatherForecast': // 🌤️ Nouveau
+        case 'weatherForecast':
           const forecastResult = await this.weatherService.getWeatherForAllSensorCities();
           return { 
             success: forecastResult.success, 
             message: 'Prévisions météo manuelles terminées',
             data: forecastResult
           };
+          
+        case 'enhanced-alerts': 
+          return await this.runEnhancedAlertsTest();
           
         case 'alertCleanup':
           const deletedAlerts = await this.alertService.cleanupOldAlerts(30);
@@ -1242,9 +1616,9 @@ setupSyncJob() {
     }
   }
 
-  // 🌤️ Nouvelle méthode: forcer synchronisation complète (données + météo)
+  // Synchronisation complète forcée
   async forceSyncNow() {
-    console.log('🔄 Synchronisation complète forcée (capteurs + météo)...');
+    console.log('🔄 Synchronisation complète forcée (capteurs + météo + alertes)...');
     this.addLog('info', 'Synchronisation complète forcée');
 
     try {
@@ -1252,6 +1626,7 @@ setupSyncJob() {
         sensors: null,
         weather: null,
         predictions: null,
+        enhanced_alerts: null, // ✅ NOUVEAU
         alerts_created: 0,
         timestamp: new Date()
       };
@@ -1273,14 +1648,23 @@ setupSyncJob() {
         results.weather = { success: false, error: error.message };
       }
       
-      // 3. Génération prédictions (optionnel)
+      // 3. Test alertes intelligentes
+      try {
+        results.enhanced_alerts = await this.runEnhancedAlertsTest();
+        if (results.enhanced_alerts.success) {
+          results.alerts_created += results.enhanced_alerts.total_alerts || 0;
+        }
+      } catch (error) {
+        results.enhanced_alerts = { success: false, error: error.message };
+      }
+      
+      // 4. Génération prédictions (optionnel)
       try {
         results.predictions = await this.runPredictionJobManually();
       } catch (error) {
         results.predictions = { success: false, error: error.message };
       }
       
-      // Diffuser résultat
       this.broadcastSystemUpdate();
       if (results.weather && results.weather.success) {
         this.broadcastWeatherUpdate(results.weather);
@@ -1297,6 +1681,7 @@ setupSyncJob() {
     }
   }
 }
+
 
 // Instance singleton
 const schedulerService = new SchedulerService();
