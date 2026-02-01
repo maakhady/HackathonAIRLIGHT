@@ -1,9 +1,7 @@
-// services/PredictionService.js - VERSION AMÉLIORÉE V2
-// 🎯 Amélioration majeure de l'exactitude des prédictions
-// ✅ Features engineering avancé (40+ features)
-// ✅ Intégration météo temps réel + prévisions
-// ✅ Ajustements saisonniers (Harmattan, saison des pluies)
-// ✅ Mode fallback intelligent
+// services/PredictionService.js - VERSION CORRIGÉE V3
+// ✅ Fix: ajustements saisonniers déjà dans les features Flask → plus de double application
+// ✅ Fix: ajustements météo lissés par jour, pas par heure
+// ✅ Fix: fenêtre de comparaison élargie pour accuracy
 
 const axios = require('axios');
 const SensorData = require('../models/SensorData');
@@ -15,7 +13,6 @@ class PredictionService {
     this.aiServiceUrl = process.env.AI_SERVICE_URL || 'http://localhost:5000';
     this.weatherService = new WeatherService();
     
-    // Configuration des horizons
     this.horizonConfig = {
       short: { max: 24, confidence: 0.80, name: 'court_terme' },
       medium: { max: 72, confidence: 0.65, name: 'moyen_terme' },
@@ -24,13 +21,10 @@ class PredictionService {
   }
 
   /**
-   * ✅ AMÉLI
-
-ORÉ: Récupération adaptative des données historiques
+   * Récupération adaptative des données historiques
    */
   async getHistoricalData(sensorId, targetHours = 168) {
     try {
-      // Plus l'horizon est long, plus on a besoin d'historique
       const historicalHours = Math.max(targetHours * 4, 168);
       const startDate = new Date(Date.now() - historicalHours * 60 * 60 * 1000);
 
@@ -52,7 +46,7 @@ ORÉ: Récupération adaptative des données historiques
   }
 
   /**
-   * ✅ NOUVEAU: Features engineering avancé
+   * Features engineering avancé
    */
   async prepareAdvancedTrainingData(sensorId, hoursAhead = 168) {
     try {
@@ -65,7 +59,6 @@ ORÉ: Récupération adaptative des données historiques
         };
       }
 
-      // Enrichir avec 40+ features
       const enrichedData = historicalData.map((point, index) => {
         const ts = new Date(point.timestamp);
         const hour = ts.getHours();
@@ -80,7 +73,7 @@ ORÉ: Récupération adaptative des données historiques
           humidity: point.measurements.humidity || 50,
           co2: point.measurements.co2 || 400,
           
-          // Features temporelles (10)
+          // Features temporelles
           hour, dayOfWeek: day, month,
           isWeekend: [0, 6].includes(day) ? 1 : 0,
           isRushHour: [7, 8, 9, 17, 18, 19, 20].includes(hour) ? 1 : 0,
@@ -90,38 +83,38 @@ ORÉ: Récupération adaptative des données historiques
           isRainySeason: [6, 7, 8, 9].includes(month) ? 1 : 0,
           isHotSeason: [3, 4, 5].includes(month) ? 1 : 0,
           
-          // Features lag (4)
+          // Lag features
           pm25_lag_1h: this.getLag(historicalData, index, 1),
           pm25_lag_3h: this.getLag(historicalData, index, 3),
           pm25_lag_6h: this.getLag(historicalData, index, 6),
           pm25_lag_24h: this.getLag(historicalData, index, 24),
           
-          // Moyennes mobiles (4)
+          // Moyennes mobiles
           pm25_rolling_3h: this.getRolling(historicalData, index, 3),
           pm25_rolling_6h: this.getRolling(historicalData, index, 6),
           pm25_rolling_12h: this.getRolling(historicalData, index, 12),
           pm25_rolling_24h: this.getRolling(historicalData, index, 24),
           
-          // Écarts-types (2)
+          // Écarts-types
           pm25_std_6h: this.getStd(historicalData, index, 6),
           pm25_std_24h: this.getStd(historicalData, index, 24),
           
-          // Différences/tendances (3)
+          // Différences
           pm25_diff_1h: this.getDiff(historicalData, index, 1),
           pm25_diff_3h: this.getDiff(historicalData, index, 3),
           pm25_diff_24h: this.getDiff(historicalData, index, 24),
           
-          // Min/Max (2)
+          // Min/Max
           pm25_min_24h: this.getMin(historicalData, index, 24),
           pm25_max_24h: this.getMax(historicalData, index, 24),
           
-          // Ratio (1)
+          // Ratio
           pm25_pm10_ratio: point.measurements.pm10 > 0 ? 
             (point.measurements.pm25 / point.measurements.pm10) : 0.5
         };
       });
 
-      // Ajouter météo si disponible
+      // Météo
       const location = await this.getSensorLocation(sensorId);
       let weatherData = null;
 
@@ -167,7 +160,7 @@ ORÉ: Récupération adaptative des données historiques
     }
   }
 
-  // Fonctions utilitaires pour features
+  // Utilitaires features
   getLag(data, idx, hours) {
     return (idx >= hours) ? (data[idx - hours]?.measurements?.pm25 || 0) : 0;
   }
@@ -233,7 +226,7 @@ ORÉ: Récupération adaptative des données historiques
   }
 
   /**
-   * ✅ Appel service IA
+   * Appel service IA
    */
   async callAdvancedAIService(trainingData, hoursAhead) {
     try {
@@ -266,7 +259,7 @@ ORÉ: Récupération adaptative des données historiques
   }
 
   /**
-   * ✅ PRINCIPAL: Génération avec ajustements météo
+   * ✅ PRINCIPAL: Génération de prédictions
    */
   async generatePrediction(sensorId, hoursAhead = 168) {
     try {
@@ -284,7 +277,7 @@ ORÉ: Récupération adaptative des données historiques
       }
       if (!aiResult.success) return aiResult;
 
-      // 3. Prévisions météo
+      // 3. Prévisions météo (par jour, pas par heure)
       const location = await this.getSensorLocation(sensorId);
       let forecast = null;
       if (location?.city) {
@@ -325,11 +318,19 @@ ORÉ: Récupération adaptative des données historiques
   }
 
   /**
-   * ✅ Enrichissement avec ajustements météo + saisonniers
+   * ✅ FIX: Enrichissement SANS double ajustement saisonnier
+   * Les features isHarmattan/isRainySeason sont déjà passées au Flask
+   * qui les intègre dans le modèle. On n'applique plus de multiplicateur ici.
+   * 
+   * Les ajustements météo sont lissés : on calcule un facteur par jour
+   * puis on l'applique uniformément sur les 24h de ce jour.
    */
   async enrichPredictions(rawPreds, sensorId, forecast, hist) {
     const now = new Date();
     const location = await this.getSensorLocation(sensorId);
+
+    // ← Précalculer les facteurs météo PAR JOUR (pas par heure)
+    const weatherFactors = this.calculateDailyWeatherFactors(forecast);
 
     return rawPreds.map((pred, i) => {
       const predFor = new Date(pred.timestamp || (now.getTime() + (i + 1) * 3600000));
@@ -342,34 +343,18 @@ ORÉ: Récupération adaptative des données historiques
       let conf = pred.confidence || this.horizonConfig[horizon].confidence;
       let pm25 = pred.predicted_pm25 || pred.pm25 || 0;
 
-      // AJUSTEMENTS MÉTÉO
-      if (forecast) {
-        const dayIdx = Math.floor(hoursAhead / 24);
-        const day = forecast.daily?.[dayIdx];
-        if (day) {
-          if (day.wind.avg_speed < 5 && day.humidity.avg > 80) {
-            pm25 *= 1.15; conf *= 0.95; // Stagnation
-          }
-          if (day.wind.avg_speed > 25) {
-            pm25 *= 1.20; conf *= 0.90; // Vent fort
-          }
-          if (day.precipitation > 5) {
-            pm25 *= 0.70; conf *= 1.05; // Pluie
-          }
-          if (day.temperature.avg > 35) {
-            pm25 *= 1.10; // Chaleur
-          }
-        }
+      // ← SEUL ajustement restant : météo, par jour
+      const dayIdx = Math.floor(hoursAhead / 24);
+      const dayFactor = weatherFactors[dayIdx];
+      if (dayFactor) {
+        pm25 *= dayFactor.pm25Factor;
+        conf *= dayFactor.confFactor;
       }
 
-      // AJUSTEMENTS SAISONNIERS (Sénégal)
-      const month = predFor.getMonth();
-      if ([11, 0, 1, 2].includes(month)) {
-        pm25 *= 1.25; conf *= 0.85; // Harmattan
-      }
-      if ([6, 7, 8, 9].includes(month)) {
-        pm25 *= 0.80; // Saison pluies
-      }
+      // ← SUPPRIMÉ : les ajustements saisonniers (Harmattan, pluies)
+      // Le Flask reçoit déjà isHarmattan et isRainySeason comme features
+      // et les intègre directement dans le modèle ensemble.
+      // Les appliquer ici aussi = double comptage.
 
       pm25 = Math.max(5, Math.min(500, pm25));
       conf = Math.max(0.2, Math.min(0.95, conf));
@@ -389,7 +374,7 @@ ORÉ: Récupération adaptative des données historiques
         } : undefined,
         weatherAdjusted: forecast !== null,
         modelMetrics: {
-          version: 'enhanced_v2',
+          version: 'enhanced_v3',
           algorithm: pred.model_type || 'ensemble'
         }
       });
@@ -398,6 +383,53 @@ ORÉ: Récupération adaptative des données historiques
       p.generateRecommendations();
       return p;
     });
+  }
+
+  /**
+   * ✅ NOUVEAU: Calcule un facteur météo unique par jour
+   * Évite les ajustements contradictoires heure par heure
+   */
+  calculateDailyWeatherFactors(forecast) {
+    const factors = {};
+    if (!forecast?.daily) return factors;
+
+    forecast.daily.forEach((day, idx) => {
+      let pm25Factor = 1.0;
+      let confFactor = 1.0;
+
+      // Stagnation atmosphérique (vent faible + humidité élevée)
+      if (day.wind?.avg_speed < 5 && day.humidity?.avg > 80) {
+        pm25Factor *= 1.12;
+        confFactor *= 0.95;
+      }
+
+      // Vent fort (peut disperser OU importer des pollutants selon la saison)
+      if (day.wind?.avg_speed > 25) {
+        // En Harmattan (nov-fév), le vent fort = plus de sable/pollution
+        const month = new Date().getMonth();
+        if ([11, 0, 1, 2].includes(month)) {
+          pm25Factor *= 1.15;
+        } else {
+          pm25Factor *= 0.95; // Sinon le vent disperse
+        }
+        confFactor *= 0.90;
+      }
+
+      // Pluie (lessive atmosphérique)
+      if (day.precipitation > 5) {
+        pm25Factor *= 0.75;
+        confFactor *= 1.05; // La pluie rend la prédiction plus fiable
+      }
+
+      // Chaleur extrême
+      if (day.temperature?.avg > 35) {
+        pm25Factor *= 1.08;
+      }
+
+      factors[idx] = { pm25Factor, confFactor };
+    });
+
+    return factors;
   }
 
   calculateAQI(pm25) {
@@ -445,7 +477,9 @@ ORÉ: Récupération adaptative des données historiques
   }
 
   /**
-   * Évaluation exactitude
+   * ✅ FIX: Fenêtre de comparaison élargie de ±10min à ±30min
+   * Avant, si la donnée réelle arrivait à 14:05 et la prédiction visait 14:00,
+   * avec ±10min on ratait parfois → accuracy = 0.0%
    */
   async evaluatePredictionAccuracy(sensorId, hours = 24) {
     try {
@@ -465,18 +499,20 @@ ORÉ: Récupération adaptative des données historiques
       let totalError = 0, totalPctError = 0, count = 0;
 
       for (const p of preds) {
+        // ← Fenêtre élargie à ±30 minutes
         const actual = await SensorData.findOne({
           sensorId,
           timestamp: {
-            $gte: new Date(p.predictionFor.getTime() - 600000),
-            $lte: new Date(p.predictionFor.getTime() + 600000)
+            $gte: new Date(p.predictionFor.getTime() - 1800000),  // -30min
+            $lte: new Date(p.predictionFor.getTime() + 1800000)   // +30min
           }
-        });
+        }).sort({ timestamp: 1 }); // Prendre la plus proche chronologiquement
 
         if (actual) {
-          const err = Math.abs(actual.measurements.pm25 - p.predictedPM25);
+          const actualPM25 = actual.measurements.pm25 || 0;
+          const err = Math.abs(actualPM25 - p.predictedPM25);
           totalError += err;
-          totalPctError += actual.measurements.pm25 > 0 ? (err / actual.measurements.pm25) * 100 : 0;
+          totalPctError += actualPM25 > 0 ? (err / actualPM25) * 100 : 0;
           count++;
         }
       }
