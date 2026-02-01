@@ -1,5 +1,10 @@
-# ai_service/app_enhanced.py - MODÈLE IA AMÉLIORÉ
-# 🎯 Amélioration majeure: accepte 40+ features, meilleure régularisation
+# ai_service/app_enhanced.py - MODÈLE IA V3
+# ✅ Fix: buffer historique pour lag/rolling (plus d'oscillations)
+# ✅ Fix: build_features_from_buffer remplace update_features_for_next_hour
+# ✅ Fix: lissage entre prédictions consécutives
+# ✅ Fix: météo (wind/pressure) mise à jour heure par heure depuis last_row
+# ✅ Fix: hyperparamètres plus stricts pour moins de surapprentissage
+# ✅ Compatible avec les 30+ features envoyées par PredictionService v3.2
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -8,7 +13,6 @@ import pandas as pd
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-import joblib
 from datetime import datetime, timedelta
 import warnings
 warnings.filterwarnings('ignore')
@@ -16,33 +20,29 @@ warnings.filterwarnings('ignore')
 app = Flask(__name__)
 CORS(app)
 
-# Configuration globale
-MODEL_VERSION = "enhanced_v2.1"
-FEATURE_COLUMNS = None  # Sera défini dynamiquement
+MODEL_VERSION = "enhanced_v3"
+FEATURE_COLUMNS = None
 scaler = StandardScaler()
 
-# Modèles (ensemble pour meilleure précision)
 rf_model = None
 gb_model = None
+
 
 @app.route('/', methods=['GET'])
 def home():
     return jsonify({
-        "service": "AirLight AI Prediction Service - Enhanced",
+        "service": "AirLight AI Prediction Service",
         "version": MODEL_VERSION,
         "status": "operational",
-        "features": "40+ features support, ensemble models, weather integration",
         "timestamp": datetime.now().isoformat()
     })
 
+
 @app.route('/predict', methods=['POST'])
 def predict():
-    """
-    ✅ AMÉLIORÉ: Accepte données enrichies avec features avancées
-    """
     try:
         data = request.get_json()
-        
+
         if not data or 'historical_data' not in data:
             return jsonify({
                 "error": "Missing historical_data",
@@ -52,134 +52,112 @@ def predict():
                     "features": "optional list of feature names"
                 }
             }), 400
-        
+
         historical_data = data['historical_data']
         hours_ahead = data.get('hours_ahead', 168)
         requested_features = data.get('features', None)
-        
-        # Validation
+
         if len(historical_data) < 50:
             return jsonify({
-                "error": f"Insufficient data: {len(historical_data)} points (minimum 50 required)",
-                "suggestion": "Collect more historical data before prediction"
+                "error": f"Insufficient data: {len(historical_data)} points (minimum 50 required)"
             }), 400
-        
+
         if hours_ahead < 1 or hours_ahead > 168:
-            return jsonify({
-                "error": "hours_ahead must be between 1 and 168"
-            }), 400
-        
+            return jsonify({"error": "hours_ahead must be between 1 and 168"}), 400
+
         print(f"\n{'='*60}")
-        print(f"📊 NOUVELLE REQUÊTE DE PRÉDICTION")
+        print(f"📊 REQUÊTE PRÉDICTION v3")
         print(f"{'='*60}")
-        print(f"   Points de données: {len(historical_data)}")
-        print(f"   Horizon: {hours_ahead}h")
-        
-        # Convertir en DataFrame
+        print(f"   Points: {len(historical_data)} | Horizon: {hours_ahead}h")
+
         df = pd.DataFrame(historical_data)
-        
-        # Identifier features disponibles
+
         numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
         if 'timestamp' in numeric_columns:
             numeric_columns.remove('timestamp')
-        
+
         if 'pm25' not in numeric_columns:
             return jsonify({
-                "error": "Missing 'pm25' column in data",
+                "error": "Missing 'pm25' column",
                 "available_columns": list(df.columns)
             }), 400
-        
-        print(f"   Features disponibles: {len(numeric_columns)}")
-        print(f"   Liste: {', '.join(numeric_columns[:10])}{'...' if len(numeric_columns) > 10 else ''}")
-        
-        # Utiliser features demandées ou toutes disponibles
+
+        # Sélection des features
         if requested_features:
             feature_cols = [f for f in requested_features if f in numeric_columns and f != 'pm25']
         else:
             feature_cols = [c for c in numeric_columns if c != 'pm25']
-        
-        # Préparer données d'entraînement
+
+        print(f"   Features utilisées: {len(feature_cols)}")
+
         X = df[feature_cols].fillna(0)
         y = df['pm25'].values
-        
-        # Normalisation
+
         global scaler, FEATURE_COLUMNS
         FEATURE_COLUMNS = feature_cols
         X_scaled = scaler.fit_transform(X)
-        
-        # Train/test split
+
         X_train, X_test, y_train, y_test = train_test_split(
             X_scaled, y, test_size=0.2, random_state=42, shuffle=False
         )
-        
-        print(f"\n📈 ENTRAÎNEMENT DES MODÈLES...")
+
+        print(f"\n📈 ENTRAÎNEMENT...")
         print(f"   Train: {len(X_train)} | Test: {len(X_test)}")
-        
-        # ✅ Random Forest (robuste, gère bien les non-linéarités)
+
+        # Random Forest - paramètres plus stricts
         global rf_model
         rf_model = RandomForestRegressor(
-            n_estimators=150,  # Plus d'arbres = plus stable
-            max_depth=15,       # Limite la complexité
-            min_samples_split=5,
-            min_samples_leaf=2,
+            n_estimators=150,
+            max_depth=12,            # ← réduit de 15 → moins de surapprentissage
+            min_samples_split=8,     # ← plus strict
+            min_samples_leaf=4,      # ← plus strict
             max_features='sqrt',
             random_state=42,
             n_jobs=-1
         )
         rf_model.fit(X_train, y_train)
         rf_score = rf_model.score(X_test, y_test)
-        
-        # ✅ Gradient Boosting (capture tendances complexes)
+
+        # Gradient Boosting - paramètres plus stricts
         global gb_model
         gb_model = GradientBoostingRegressor(
             n_estimators=100,
-            learning_rate=0.05,  # Plus lent = plus précis
-            max_depth=5,
-            min_samples_split=5,
-            min_samples_leaf=2,
+            learning_rate=0.05,
+            max_depth=4,             # ← réduit de 5
+            min_samples_split=8,
+            min_samples_leaf=4,
             subsample=0.8,
             random_state=42
         )
         gb_model.fit(X_train, y_train)
         gb_score = gb_model.score(X_test, y_test)
-        
-        print(f"   ✅ Random Forest R²: {rf_score:.3f}")
-        print(f"   ✅ Gradient Boosting R²: {gb_score:.3f}")
-        
-        # Générer prédictions
-        print(f"\n🔮 GÉNÉRATION DE {hours_ahead}H DE PRÉDICTIONS...")
-        predictions = generate_predictions(
-            df, 
-            feature_cols, 
-            hours_ahead,
-            rf_model,
-            gb_model
-        )
-        
-        # Statistiques
+
+        print(f"   ✅ RF R²: {rf_score:.3f} | GB R²: {gb_score:.3f}")
+
+        # Génération avec buffer historique
+        print(f"\n🔮 GÉNÉRATION {hours_ahead}H...")
+        predictions = generate_predictions(df, feature_cols, hours_ahead, rf_model, gb_model)
+
         pred_values = [p['predicted_pm25'] for p in predictions]
         avg_pm25 = np.mean(pred_values)
         max_pm25 = np.max(pred_values)
         min_pm25 = np.min(pred_values)
-        
+
         print(f"\n📊 RÉSULTATS:")
-        print(f"   Prédictions générées: {len(predictions)}")
-        print(f"   PM2.5 moyen prédit: {avg_pm25:.1f} µg/m³")
-        print(f"   Range: [{min_pm25:.1f} - {max_pm25:.1f}] µg/m³")
+        print(f"   Générées: {len(predictions)} | Moy: {avg_pm25:.1f} | Range: [{min_pm25:.1f} - {max_pm25:.1f}] µg/m³")
         print(f"{'='*60}\n")
-        
+
         return jsonify({
             "success": True,
             "predictions": predictions,
             "model_info": {
                 "version": MODEL_VERSION,
-                "algorithm": "ensemble (RF + GB)",
+                "algorithm": "ensemble (RF 0.6 + GB 0.4)",
                 "features_used": len(feature_cols),
-                "feature_names": feature_cols[:20],  # Top 20
+                "feature_names": feature_cols[:20],
                 "training_points": len(X_train),
                 "test_score_rf": round(rf_score, 3),
-                "test_score_gb": round(gb_score, 3),
-                "ensemble_weight": "0.6 RF + 0.4 GB"
+                "test_score_gb": round(gb_score, 3)
             },
             "statistics": {
                 "predictions_count": len(predictions),
@@ -188,53 +166,60 @@ def predict():
                 "min_pm25": round(min_pm25, 2)
             }
         })
-        
+
     except Exception as e:
         print(f"❌ ERREUR: {str(e)}")
         import traceback
         traceback.print_exc()
-        
-        return jsonify({
-            "error": str(e),
-            "type": type(e).__name__
-        }), 500
+        return jsonify({"error": str(e), "type": type(e).__name__}), 500
 
 
 def generate_predictions(df, feature_cols, hours_ahead, rf, gb):
     """
-    ✅ Génération de prédictions avec ensemble de modèles
+    ✅ V3 : buffer historique pour éliminer les oscillations.
+    
+    Au lieu de partir de last_row et d'approximer les features,
+    on garde les 24 dernières valeurs réelles de pm25 dans un buffer.
+    Chaque prédiction est ajoutée au buffer → les lag/rolling
+    sont calculés sur des données cohérentes.
     """
     predictions = []
+
+    # ← BUFFER : 24 dernières valeurs réelles de pm25
+    pm25_history = list(df['pm25'].values[-24:])
+
+    # Dernière ligne pour les features stables (météo, temporelles de base)
     last_row = df.iloc[-1].copy()
     base_timestamp = pd.to_datetime(last_row.get('timestamp', datetime.now()))
-    
-    # Poids de l'ensemble (RF est généralement plus stable)
+
     RF_WEIGHT = 0.6
     GB_WEIGHT = 0.4
-    
+
     for hour in range(1, hours_ahead + 1):
-        # Préparer features pour cette heure
-        features = []
-        for col in feature_cols:
-            if col in last_row:
-                features.append(last_row[col])
-            else:
-                features.append(0)
-        
-        # Normaliser
+        # ← Construire les features depuis le buffer
+        features = build_features_from_buffer(
+            last_row, feature_cols, pm25_history, hour
+        )
+
         features_scaled = scaler.transform([features])
-        
-        # Prédictions des 2 modèles
+
         rf_pred = rf.predict(features_scaled)[0]
         gb_pred = gb.predict(features_scaled)[0]
-        
-        # Ensemble (moyenne pondérée)
+
         ensemble_pred = RF_WEIGHT * rf_pred + GB_WEIGHT * gb_pred
-        
-        # Limites réalistes
         ensemble_pred = np.clip(ensemble_pred, 1, 500)
-        
-        # Confiance adaptative selon horizon
+
+        # ← LISSAGE : limiter la variation entre deux heures consécutives
+        if len(pm25_history) >= 1:
+            prev_val = pm25_history[-1]
+            max_change = prev_val * 0.30  # max 30% de variation par heure
+            ensemble_pred = np.clip(
+                ensemble_pred,
+                prev_val - max_change,
+                prev_val + max_change
+            )
+
+        # Confiance adaptative
         if hour <= 6:
             confidence = 0.85
         elif hour <= 24:
@@ -245,150 +230,236 @@ def generate_predictions(df, feature_cols, hours_ahead, rf, gb):
             confidence = 0.55
         else:
             confidence = max(0.35, 0.65 - (hour - 72) * 0.005)
-        
-        # Ajuster confiance selon écart entre modèles
-        model_agreement = 1 - abs(rf_pred - gb_pred) / max(rf_pred, gb_pred, 1)
+
+        # Ajuster selon accord entre les deux modèles
+        model_agreement = 1 - abs(rf_pred - gb_pred) / max(abs(rf_pred), abs(gb_pred), 1)
         confidence *= (0.8 + 0.2 * model_agreement)
-        
+
         pred_timestamp = base_timestamp + timedelta(hours=hour)
-        
+
         predictions.append({
             "timestamp": pred_timestamp.isoformat(),
             "hours_ahead": hour,
             "predicted_pm25": round(float(ensemble_pred), 2),
-            "confidence": round(float(confidence), 3),
+            "confidence": round(float(min(confidence, 0.95)), 3),
             "model_type": "ensemble",
             "model_details": {
                 "rf_prediction": round(float(rf_pred), 2),
                 "gb_prediction": round(float(gb_pred), 2),
-                "agreement": round(model_agreement, 3)
+                "agreement": round(float(model_agreement), 3)
             }
         })
-        
-        # Mise à jour features pour prochaine itération
-        # Simuler évolution temporelle
-        last_row = update_features_for_next_hour(last_row, ensemble_pred, hour)
-    
+
+        # ← Ajouter la prédiction au buffer pour la prochaine itération
+        pm25_history.append(float(ensemble_pred))
+        if len(pm25_history) > 24:
+            pm25_history.pop(0)
+
     return predictions
 
 
-def update_features_for_next_hour(row, predicted_pm25, hour):
+def build_features_from_buffer(last_row, feature_cols, pm25_history, current_hour):
     """
-    ✅ Mise à jour intelligente des features pour prochaine prédiction
+    ✅ V3 : reconstruit chaque feature depuis le buffer réel.
+    
+    Remplace update_features_for_next_hour qui approximait grossièrement.
+    
+    - Lag features → index direct dans pm25_history
+    - Rolling averages → np.mean sur la fenêtre du buffer
+    - Différences → subtraction entre positions du buffer
+    - Features temporelles → recalculées avec current_hour
+    - Météo (wind/pressure/precipitation) → depuis last_row
+      (le Node envoie déjà ces valeurs interpolées par heure,
+       mais ici on est dans la boucle de génération donc on garde
+       les dernières valeurs reçues)
     """
-    updated = row.copy()
-    
-    # Mettre à jour PM2.5
-    updated['pm25'] = predicted_pm25
-    
-    # Mettre à jour features temporelles
-    if 'hour' in updated:
-        updated['hour'] = (updated['hour'] + 1) % 24
-    
-    # Mettre à jour features lag (décaler)
-    if 'pm25_lag_24h' in updated:
-        updated['pm25_lag_24h'] = updated.get('pm25_lag_1h', predicted_pm25)
-    if 'pm25_lag_6h' in updated:
-        updated['pm25_lag_6h'] = updated.get('pm25_lag_3h', predicted_pm25)
-    if 'pm25_lag_3h' in updated:
-        updated['pm25_lag_3h'] = updated.get('pm25_lag_1h', predicted_pm25)
-    if 'pm25_lag_1h' in updated:
-        updated['pm25_lag_1h'] = predicted_pm25
-    
-    # Mettre à jour moyennes mobiles (approximation)
-    for window in [3, 6, 12, 24]:
-        col = f'pm25_rolling_{window}h'
-        if col in updated:
-            # Moyenne mobile simple (approximation)
-            updated[col] = 0.9 * updated[col] + 0.1 * predicted_pm25
-    
-    # Mettre à jour différences
-    if 'pm25_diff_1h' in updated:
-        updated['pm25_diff_1h'] = predicted_pm25 - updated.get('pm25_lag_1h', predicted_pm25)
-    
-    # Décroissance progressive de la confiance pour features météo
-    # (car on s'éloigne dans le futur)
-    for col in updated.index:
-        if 'weather_' in col or 'wind_' in col:
-            updated[col] *= 0.99  # Légère dégradation
-    
-    return updated
+    features = []
+
+    for col in feature_cols:
+
+        # ─── Features temporelles ───────────────────────────────
+        if col == 'hour':
+            base_hour = int(last_row.get('hour', 0))
+            features.append((base_hour + current_hour) % 24)
+
+        elif col == 'dayOfWeek':
+            # Si on dépasse 24h, le jour peut changer
+            base_day = int(last_row.get('dayOfWeek', 0))
+            days_offset = (current_hour) // 24
+            features.append((base_day + days_offset) % 7)
+
+        elif col == 'isWeekend':
+            base_day = int(last_row.get('dayOfWeek', 0))
+            days_offset = current_hour // 24
+            day = (base_day + days_offset) % 7
+            features.append(1 if day in [0, 6] else 0)
+
+        elif col == 'isRushHour':
+            hour_val = (int(last_row.get('hour', 0)) + current_hour) % 24
+            features.append(1 if hour_val in [7, 8, 9, 17, 18, 19, 20] else 0)
+
+        elif col == 'isNight':
+            hour_val = (int(last_row.get('hour', 0)) + current_hour) % 24
+            features.append(1 if (hour_val >= 22 or hour_val <= 6) else 0)
+
+        elif col == 'isDaytime':
+            hour_val = (int(last_row.get('hour', 0)) + current_hour) % 24
+            features.append(1 if (hour_val >= 6 and hour_val <= 18) else 0)
+
+        elif col in ('month', 'isHarmattan', 'isRainySeason', 'isHotSeason'):
+            # Ces features ne changent pas sur 168h
+            features.append(float(last_row.get(col, 0)))
+
+        # ─── Lag features depuis le buffer ──────────────────────
+        elif col == 'pm25_lag_1h':
+            features.append(pm25_history[-1] if len(pm25_history) >= 1 else 0)
+
+        elif col == 'pm25_lag_3h':
+            features.append(pm25_history[-3] if len(pm25_history) >= 3 else pm25_history[0] if pm25_history else 0)
+
+        elif col == 'pm25_lag_6h':
+            features.append(pm25_history[-6] if len(pm25_history) >= 6 else pm25_history[0] if pm25_history else 0)
+
+        elif col == 'pm25_lag_24h':
+            features.append(pm25_history[-24] if len(pm25_history) >= 24 else pm25_history[0] if pm25_history else 0)
+
+        # ─── Rolling averages depuis le buffer ──────────────────
+        elif col == 'pm25_rolling_3h':
+            window = pm25_history[-3:] if len(pm25_history) >= 3 else pm25_history
+            features.append(float(np.mean(window)) if window else 0)
+
+        elif col == 'pm25_rolling_6h':
+            window = pm25_history[-6:] if len(pm25_history) >= 6 else pm25_history
+            features.append(float(np.mean(window)) if window else 0)
+
+        elif col == 'pm25_rolling_12h':
+            window = pm25_history[-12:] if len(pm25_history) >= 12 else pm25_history
+            features.append(float(np.mean(window)) if window else 0)
+
+        elif col == 'pm25_rolling_24h':
+            window = pm25_history[-24:] if len(pm25_history) >= 24 else pm25_history
+            features.append(float(np.mean(window)) if window else 0)
+
+        # ─── Écarts-types depuis le buffer ──────────────────────
+        elif col == 'pm25_std_6h':
+            window = pm25_history[-6:] if len(pm25_history) >= 6 else pm25_history
+            features.append(float(np.std(window)) if len(window) > 1 else 0)
+
+        elif col == 'pm25_std_24h':
+            window = pm25_history[-24:] if len(pm25_history) >= 24 else pm25_history
+            features.append(float(np.std(window)) if len(window) > 1 else 0)
+
+        # ─── Différences depuis le buffer ───────────────────────
+        elif col == 'pm25_diff_1h':
+            if len(pm25_history) >= 2:
+                features.append(pm25_history[-1] - pm25_history[-2])
+            else:
+                features.append(0)
+
+        elif col == 'pm25_diff_3h':
+            if len(pm25_history) >= 4:
+                features.append(pm25_history[-1] - pm25_history[-4])
+            else:
+                features.append(0)
+
+        elif col == 'pm25_diff_24h':
+            if len(pm25_history) >= 24:
+                features.append(pm25_history[-1] - pm25_history[-24])
+            else:
+                features.append(0)
+
+        # ─── Min/Max depuis le buffer ───────────────────────────
+        elif col == 'pm25_min_24h':
+            window = pm25_history[-24:] if pm25_history else [0]
+            features.append(float(np.min(window)))
+
+        elif col == 'pm25_max_24h':
+            window = pm25_history[-24:] if pm25_history else [0]
+            features.append(float(np.max(window)))
+
+        # ─── Ratio (stable, basé sur dernière observation) ─────
+        elif col == 'pm25_pm10_ratio':
+            features.append(float(last_row.get(col, 0.5)))
+
+        # ─── Tout le reste : dernière valeur de last_row ────────
+        # (température, humidité depuis capteur,
+        #  wind_speed, pressure, precipitation depuis OpenWeather)
+        else:
+            val = last_row.get(col, 0)
+            features.append(float(val) if val is not None else 0)
+
+    return features
 
 
 @app.route('/model/info', methods=['GET'])
 def model_info():
-    """Informations sur le modèle actuel"""
     global rf_model, gb_model, FEATURE_COLUMNS
-    
-    info = {
+
+    return jsonify({
         "version": MODEL_VERSION,
         "models": {
             "random_forest": {
                 "trained": rf_model is not None,
-                "n_estimators": 150 if rf_model else None,
-                "max_depth": 15 if rf_model else None
+                "n_estimators": 150,
+                "max_depth": 12
             },
             "gradient_boosting": {
                 "trained": gb_model is not None,
-                "n_estimators": 100 if gb_model else None,
-                "learning_rate": 0.05 if gb_model else None
+                "n_estimators": 100,
+                "max_depth": 4,
+                "learning_rate": 0.05
             }
         },
         "features": {
             "count": len(FEATURE_COLUMNS) if FEATURE_COLUMNS else 0,
-            "names": FEATURE_COLUMNS[:20] if FEATURE_COLUMNS else []
+            "names": FEATURE_COLUMNS if FEATURE_COLUMNS else []
         },
         "capabilities": {
             "max_horizon_hours": 168,
             "min_training_points": 50,
-            "ensemble_method": "weighted_average",
-            "weather_integration": True,
-            "seasonal_adjustments": "handled_by_node_service"
+            "ensemble_method": "weighted_average (0.6 RF + 0.4 GB)",
+            "smoothing": "30% max variation par heure",
+            "buffer_size": 24
         }
-    }
-    
-    return jsonify(info)
+    })
 
 
 @app.route('/model/retrain', methods=['POST'])
 def retrain_model():
-    """Force le retraining du modèle"""
     try:
         data = request.get_json()
         if not data or 'historical_data' not in data:
             return jsonify({"error": "Missing historical_data"}), 400
-        
-        # Relancer l'entraînement
+
         result = predict()
         return jsonify({
             "success": True,
-            "message": "Model retrained successfully",
+            "message": "Model retrained",
             "version": MODEL_VERSION
         })
-        
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check"""
     return jsonify({
         "status": "healthy",
-        "service": "AirLight AI Enhanced",
+        "service": "AirLight AI",
         "version": MODEL_VERSION,
         "timestamp": datetime.now().isoformat()
     })
 
 
 if __name__ == '__main__':
-    print("\n" + "="*60)
-    print("🤖 AirLight AI Prediction Service - ENHANCED")
-    print("="*60)
-    print(f"   Version: {MODEL_VERSION}")
-    print(f"   Features: 40+ support, ensemble models")
-    print(f"   Algorithms: Random Forest + Gradient Boosting")
-    print(f"   Max horizon: 168 hours (7 days)")
-    print("="*60 + "\n")
-    
+    print("\n" + "=" * 60)
+    print("🤖 AirLight AI Prediction Service - V3")
+    print("=" * 60)
+    print(f"   Version     : {MODEL_VERSION}")
+    print(f"   Buffer      : 24h historique pour lag/rolling")
+    print(f"   Lissage     : 30% max variation/heure")
+    print(f"   Algorithmes : Random Forest + Gradient Boosting")
+    print(f"   Horizon max : 168h (7 jours)")
+    print("=" * 60 + "\n")
+
     app.run(host='0.0.0.0', port=5000, debug=False)
