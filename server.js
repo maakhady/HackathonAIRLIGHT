@@ -626,12 +626,7 @@ function gracefulShutdown(signal) {
   }, 10000);
 }
   
-  // Forcer l'arrêt après 10 secondes
-  setTimeout(() => {
-    console.error(' Arrêt forcé après timeout');
-    process.exit(1);
-  }, 10000);
-}
+  
 
 // Démarrage du serveur
 const PORT = process.env.PORT || 3000;
