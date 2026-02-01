@@ -605,15 +605,26 @@ function gracefulShutdown(signal) {
   schedulerService.stopAll();
   
   // Fermer le serveur
-  server.close(() => {
+  server.close(async () => {
     console.log(' Serveur HTTP fermé');
     
     // Fermer la connexion MongoDB
-    mongoose.connection.close(false, () => {
+    try {
+      await mongoose.connection.close();
       console.log(' Connexion MongoDB fermée');
       process.exit(0);
-    });
+    } catch (err) {
+      console.error(' Erreur fermeture MongoDB:', err);
+      process.exit(1);
+    }
   });
+  
+  // Forcer l'arrêt après 10 secondes
+  setTimeout(() => {
+    console.error(' Arrêt forcé après timeout');
+    process.exit(1);
+  }, 10000);
+}
   
   // Forcer l'arrêt après 10 secondes
   setTimeout(() => {
