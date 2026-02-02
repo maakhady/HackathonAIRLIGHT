@@ -7,11 +7,18 @@ const SensorData = require('../models/SensorData');
 const Alert = require('../models/Alert');
 const User = require('../models/User');
 
+// ✅ AJOUTER CES IMPORTS
+const TriWeeklyReportService = require('../services/TriWeeklyReportService');
+const { sendTriWeeklyReport } = require('../config/email');
+
 const router = express.Router();
 const authService = new AuthService();
 
 // Middleware pour vérifier les droits admin sur toutes les routes
 router.use(authService.requireAdmin.bind(authService));
+
+// ✅ AJOUTER CETTE FONCTION (alias pour le middleware)
+const isAdmin = authService.requireAdmin.bind(authService);
 
 // GET /admin/dashboard - Tableau de bord administrateur
 router.get('/dashboard', async (req, res) => {
@@ -100,6 +107,86 @@ router.get('/dashboard', async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la récupération du dashboard'
+    });
+  }
+});
+
+// ✅ ROUTE : Envoyer rapport tri-hebdomadaire à tous les abonnés
+router.post('/send-triweekly-report', async (req, res) => {
+  try {
+    const result = await TriWeeklyReportService.generateAndSendReports();
+    res.json({
+      success: true,
+      message: `Rapport envoyé à ${result.successful}/${result.total} utilisateurs`,
+      data: result
+    });
+  } catch (error) {
+    console.error('Erreur envoi rapport:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
+    });
+  }
+});
+
+// ✅ ROUTE : Test email rapport (sans auth admin requise pour faciliter le test)
+router.post('/test-email-report', async (req, res) => {
+  try {
+    const testEmail = req.body.email || 'makhadypro@gmail.com';
+    
+    const reportData = {
+      userEmail: testEmail,
+      userName: 'Mame Khady',
+      userCity: 'Dakar',
+      period: '30/01 - 02/02/2026',
+      daysCount: 3,
+      avgAqi: 68,
+      bestDay: { date: '30/01', aqi: 42 },
+      worstDay: { date: '01/02', aqi: 89 },
+      trendPercentage: -12,
+      alertsCount: 3,
+      topCities: [
+        { name: 'Saint-Louis', aqi: 32 },
+        { name: 'Ziguinchor', aqi: 38 },
+        { name: 'Thiès', aqi: 45 },
+        { name: 'Diourbel', aqi: 62 },
+        { name: 'Dakar', aqi: 68 }
+      ],
+      userCityRank: { position: 5, total: 5 },
+      cigaretteEquivalent: 0.8,
+      unhealthyHours: 18,
+      predictions: [
+        { day: 'Aujourd\'hui', aqi: 52 },
+        { day: 'Demain', aqi: 38 },
+        { day: 'Après-demain', aqi: 45 }
+      ],
+      bestPredictionDay: {
+        message: 'Conditions favorables demain grâce aux vents océaniques',
+        bestTime: 'Demain 6h-9h'
+      },
+      recommendations: [
+        { icon: '✅', text: 'Sport outdoor OK vendredi matin' },
+        { icon: '⚠️', text: 'Limiter sorties mercredi après-midi' },
+        { icon: '🏠', text: 'Aérer maison tôt le matin' }
+      ],
+      tip: {
+        title: '🌿 Les plantes purifient l\'air',
+        content: 'L\'Aloe Vera, le Ficus et la Sansevieria peuvent réduire la pollution intérieure jusqu\'à 10%. Trouvables facilement au marché Sandaga à Dakar.'
+      }
+    };
+
+    const result = await sendTriWeeklyReport(testEmail, reportData);
+
+    res.json({
+      success: true,
+      message: `Email test envoyé à ${testEmail}`,
+      result
+    });
+  } catch (error) {
+    console.error('Erreur test email:', error);
+    res.status(500).json({ 
+      success: false,
+      error: error.message 
     });
   }
 });
@@ -342,8 +429,6 @@ router.patch('/users/:id/reactivate', async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Empêcher un utilisateur de se réactiver lui-même si ce n’est pas autorisé
-    // (optionnel selon ta logique métier)
     if (id === req.user.id) {
       return res.status(400).json({
         success: false,
@@ -377,8 +462,6 @@ router.patch('/users/:id/reactivate', async (req, res) => {
     });
   }
 });
-
-
 
 // GET /admin/logs/scheduler - Logs du scheduler
 router.get('/logs/scheduler', (req, res) => {

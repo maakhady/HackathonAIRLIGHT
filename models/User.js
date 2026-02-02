@@ -1,4 +1,3 @@
-// models/User.js - Modèle User simplifié
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
@@ -23,7 +22,7 @@ const UserSchema = new mongoose.Schema({
   password: {
     type: String,
     required: function() {
-      return !this.googleId; // Mot de passe requis seulement si pas de connexion Google
+      return !this.googleId;
     }
   },
   role: {
@@ -31,16 +30,24 @@ const UserSchema = new mongoose.Schema({
     enum: ['admin', 'user'],
     default: 'user'
   },
+  
   // Pour la connexion Google
   googleId: {
     type: String,
-    sparse: true // Index sparse pour permettre les valeurs null
+    sparse: true
   },
-  avatar: String, // URL de l'image de profil
+  avatar: String,
+  
+  // ✅ AJOUTER CE CHAMP
+  city: {
+    type: String,
+    enum: ['Dakar', 'Thiès', 'Saint-Louis', 'Diourbel', 'Ziguinchor'],
+    default: 'Dakar'
+  },
   
   // Préférences notifications
   notifications: {
-    email: { type: Boolean, default: true },
+    email: { type: Boolean, default: true },  // ← On utilisera celui-ci
     push: { type: Boolean, default: true }
   },
   
@@ -57,11 +64,8 @@ const UserSchema = new mongoose.Schema({
   timestamps: true
 });
 
-
-
 // Hash du mot de passe avant sauvegarde
 UserSchema.pre('save', async function(next) {
-  // Ne pas hasher si c'est une connexion Google sans mot de passe
   if (!this.password || !this.isModified('password')) return next();
   
   try {
@@ -75,7 +79,7 @@ UserSchema.pre('save', async function(next) {
 
 // Méthode pour comparer les mots de passe
 UserSchema.methods.comparePassword = async function(candidatePassword) {
-  if (!this.password) return false; // Pas de mot de passe (connexion Google)
+  if (!this.password) return false;
   return bcrypt.compare(candidatePassword, this.password);
 };
 

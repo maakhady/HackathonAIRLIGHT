@@ -16,8 +16,11 @@ require('./config/passport');
 const schedulerService = require('./services/SchedulerService');
 const { AlertMiddleware, injectAlertMiddleware } = require('./middleware/alertMiddleware');
 
-//  Import du service météo
+// Import du service météo
 const WeatherService = require('./services/WeatherService');
+
+// ✅ Import du cron tri-weekly
+const { scheduleTriWeeklyReport, stopTriWeeklyReport, getStatus: getTriWeeklyReportStatus } = require('./cron/triWeeklyReport');
 
 // Import des routes
 const authRoutes = require('./routes/auth');
@@ -30,7 +33,7 @@ const weatherRoutes = require('./routes/weather');
 const app = express();
 const server = http.createServer(app);
 
-//  Initialiser le service météo
+// Initialiser le service météo
 const weatherService = new WeatherService();
 
 // Initialiser AlertMiddleware
@@ -104,12 +107,12 @@ app.use(passport.session());
 // Connexion à MongoDB
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/airlight')
   .then(() => {
-    console.log(' Connexion MongoDB réussie');
+    console.log('Connexion MongoDB réussie');
     
-    //  Tester le service météo après la connexion DB
+    // Tester le service météo après la connexion DB
     weatherService.testConnection().then(result => {
       if (result.success) {
-        console.log('Service météo initialisé avec succès');
+        console.log(' Service météo initialisé avec succès');
       } else {
         console.log(' Service météo non disponible:', result.error);
         if (result.recommendation) {
@@ -121,10 +124,13 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/airlight'
     // Initialiser le scheduler après la connexion DB
     setTimeout(() => {
       schedulerService.initialize();
+      
+      // ✅ Démarrer le cron tri-weekly
+      scheduleTriWeeklyReport();
     }, 2000);
   })
   .catch((error) => {
-    console.error(' Erreur connexion MongoDB:', error.message);
+    console.error('❌ Erreur connexion MongoDB:', error.message);
   });
 
 // Routes principales SANS préfixe /api (selon votre demande)
@@ -133,7 +139,7 @@ app.use('/alerts', alertRoutes);
 app.use('/sensors', sensorRoutes);
 app.use('/predictions', predictionRoutes);
 app.use('/admin', adminRoutes);
-app.use('/weather', weatherRoutes); // Routes météo ajoutées
+app.use('/weather', weatherRoutes);
 
 // Route de santé complète avec météo
 app.get('/health', async (req, res) => {
@@ -143,8 +149,11 @@ app.get('/health', async (req, res) => {
     const predictionService = new PredictionService();
     const aiHealth = await predictionService.checkAIServiceHealth();
     
-    //  Vérifier le service météo
+    // Vérifier le service météo
     const weatherHealth = await weatherService.testConnection();
+    
+    // ✅ Vérifier le statut du cron tri-weekly
+    const triWeeklyReportStatus = getTriWeeklyReportStatus();
     
     const health = {
       status: 'OK',
@@ -154,12 +163,14 @@ app.get('/health', async (req, res) => {
         websocket: AlertMiddleware ? 'Active' : 'Inactive',
         scheduler: schedulerService.isRunning ? 'Running' : 'Stopped',
         ai_service: aiHealth.available ? 'Available' : 'Unavailable',
-        weather_service: weatherHealth.success ? 'Available' : 'Unavailable',  
+        weather_service: weatherHealth.success ? 'Available' : 'Unavailable',
+        triweekly_report: triWeeklyReportStatus.isScheduled ? 'Scheduled' : 'Not Scheduled',
         connectedClients: AlertMiddleware ? AlertMiddleware.getConnectionStats().connectedClients : 0
       },
       scheduler_jobs: schedulerService.getJobsStatus(),
+      triweekly_report: triWeeklyReportStatus,
       ai_service_detail: aiHealth,
-      weather_service_detail: weatherHealth 
+      weather_service_detail: weatherHealth
     };
     
     const statusCode = (
@@ -189,7 +200,8 @@ app.get('/', (req, res) => {
       ' Système d\'alertes temps réel',
       ' Collecte données multi-capteurs (Sénégal)',
       ' Prédictions IA avec Machine Learning',
-      ' Service météo intégré avec corrélation qualité air',  
+      ' Service météo intégré avec corrélation qualité air',
+      ' Rapports tri-hebdomadaires automatiques',
       ' WebSocket temps réel',
       ' Scheduler automatisé',
       ' Interface administrateur'
@@ -206,8 +218,8 @@ app.get('/', (req, res) => {
         'GET /sensors': 'Liste des capteurs avec statuts',
         'GET /sensors/:sensorId/data': 'Données historiques d\'un capteur',
         'GET /sensors/:sensorId/latest': 'Dernières mesures d\'un capteur',
-        'GET /sensors/:sensorId/weather': 'Météo pour un capteur spécifique',  
-        'GET /sensors/weather/dashboard': 'Dashboard météo tous capteurs',  
+        'GET /sensors/:sensorId/weather': 'Météo pour un capteur spécifique',
+        'GET /sensors/weather/dashboard': 'Dashboard météo tous capteurs',
         'POST /sensors/data': 'Recevoir données depuis ESP32',
         'POST /sensors/sync': 'Synchroniser avec AirGradient (admin)',
         'GET /sensors/stats/global': 'Statistiques globales tous capteurs'
@@ -230,7 +242,6 @@ app.get('/', (req, res) => {
         'GET /predictions/stats/global': 'Statistiques globales IA',
         'GET /predictions/ai-service/health': 'État du service IA'
       },
-      //  Endpoints météo
       weather: {
         'GET /weather/current': 'Météo actuelle (city, lat, lon)',
         'GET /weather/forecast': 'Prévisions météo jusqu\'à 5 jours',
@@ -247,6 +258,8 @@ app.get('/', (req, res) => {
         'GET /admin/scheduler/status': 'État du scheduler',
         'POST /admin/scheduler/run/:jobName': 'Exécuter job manuellement',
         'POST /admin/scheduler/sync-now': 'Synchronisation forcée',
+        'POST /admin/send-triweekly-report': 'Envoyer rapport tri-hebdomadaire maintenant',
+        'POST /admin/test-email-report': 'Test email rapport',
         'GET /admin/users': 'Gestion des utilisateurs',
         'PATCH /admin/users/:id/role': 'Modifier rôle utilisateur'
       },
@@ -272,7 +285,7 @@ app.get('/', (req, res) => {
           'active_alerts - Liste des alertes actives',
           'system_stats - Statistiques système temps réel',
           'predictions_update - Nouvelles prédictions disponibles',
-          'weather_update - Mise à jour météo', 
+          'weather_update - Mise à jour météo',
           'weather_alert - Alerte météo impactant qualité air',
           'pong - Réponse au ping'
         ]
@@ -289,7 +302,6 @@ app.get('/', (req, res) => {
       ],
       supported_parameters: ['pm25', 'pm10', 'co2', 'temperature', 'humidity', 'tvoc', 'nox']
     },
-    //  Nouvelle section météo
     weather_service: {
       provider: 'OpenWeatherMap',
       api_configured: !!process.env.OPENWEATHER_API_KEY,
@@ -315,6 +327,28 @@ app.get('/', (req, res) => {
         'Saison Harmattan (poussière sahélienne)'
       ]
     },
+    email_reports: {
+      schedule: 'Tous les 3 jours à 20h00 (Dakar)',
+      timezone: 'Africa/Dakar',
+      features: [
+        'Vue d\'ensemble 3 derniers jours',
+        'Prédictions IA 3 prochains jours',
+        'Classement des villes par qualité air',
+        'Impact santé personnalisé (équivalent cigarettes)',
+        'Recommandations adaptées au niveau AQI',
+        'Conseil de la semaine (rotation 4 thèmes)',
+        'Design responsive avec vos couleurs AQI'
+      ],
+      content_sections: [
+        ' Vue d\'ensemble (AQI moyen, tendance, alertes)',
+        ' Prévisions IA 3 jours',
+        ' Classement villes',
+        ' Impact santé',
+        ' Conseil pratique'
+      ],
+      status: getTriWeeklyReportStatus().isScheduled ? 'Active' : 'Inactive',
+      next_run: getTriWeeklyReportStatus().lastRun ? 'Calculé après premier envoi' : 'En attente du premier cycle'
+    },
     sensors_coverage: {
       country: 'Sénégal',
       locations: [
@@ -326,9 +360,12 @@ app.get('/', (req, res) => {
         { name: 'Rufisque', status: 'active', weather_available: true }
       ],
       data_sources: ['AirGradient', 'OpenAQ', 'ESP32'],
-      weather_integration: 'OpenWeatherMap API' 
+      weather_integration: 'OpenWeatherMap API'
     },
-    scheduler_jobs: schedulerService.getJobsStatus()
+    scheduler_jobs: {
+      ...schedulerService.getJobsStatus(),
+      triWeeklyReport: getTriWeeklyReportStatus()
+    }
   });
 });
 
@@ -360,7 +397,7 @@ if (process.env.NODE_ENV === 'development') {
       const aiHealth = await predictionService.checkAIServiceHealth();
       results.tests.ai_service = aiHealth;
       
-      //  Test service météo
+      // Test service météo
       const weatherHealth = await weatherService.testConnection();
       results.tests.weather_service = weatherHealth;
       
@@ -369,6 +406,9 @@ if (process.env.NODE_ENV === 'development') {
         status: schedulerService.isRunning ? 'OK' : 'FAIL',
         jobs: schedulerService.getJobsStatus()
       };
+      
+      // Test cron tri-weekly
+      results.tests.triweekly_report = getTriWeeklyReportStatus();
       
       res.json({
         success: true,
@@ -385,7 +425,7 @@ if (process.env.NODE_ENV === 'development') {
     }
   });
   
-  //  Test spécifique météo
+  // Test spécifique météo
   app.post('/test/weather', async (req, res) => {
     try {
       console.log(' Test complet du service météo...');
@@ -418,14 +458,14 @@ if (process.env.NODE_ENV === 'development') {
   // Route pour déclencher une démo complète avec météo
   app.post('/demo/full', async (req, res) => {
     try {
-      console.log('🎬 Démarrage démo complète AirLight avec météo...');
+      console.log(' Démarrage démo complète AirLight avec météo...');
       
       const demo_results = {
         step1_data_sync: null,
-        step2_weather_sync: null, 
+        step2_weather_sync: null,
         step3_alert_creation: null,
         step4_prediction_generation: null,
-        step5_weather_correlation: null, 
+        step5_weather_correlation: null,
         step6_websocket_broadcast: null
       };
       
@@ -451,7 +491,7 @@ if (process.env.NODE_ENV === 'development') {
         const testAlert = new Alert({
           sensorId: 'DEMO_SENSOR',
           alertType: 'pollution_spike',
-          severity: 'unhealthy', //  Corrigé: utiliser nouveaux niveaux
+          severity: 'unhealthy',
           qualityLevel: 'very_poor',
           referenceStandard: 'WHO_2021',
           message: ' DÉMO - Pic de pollution détecté: PM2.5 à 95.2 µg/m³',
@@ -486,7 +526,7 @@ if (process.env.NODE_ENV === 'development') {
         demo_results.step4_prediction_generation = { success: false, error: error.message };
       }
       
-      //  Étape 5: Corrélation météo/qualité air
+      // Étape 5: Corrélation météo/qualité air
       try {
         const weatherAnalysis = await weatherService.getAirQualityForecast('Dakar');
         demo_results.step5_weather_correlation = { success: weatherAnalysis.success, result: weatherAnalysis };
@@ -503,7 +543,7 @@ if (process.env.NODE_ENV === 'development') {
           timestamp: new Date()
         });
         
-        //  Diffuser aussi update météo
+        // Diffuser aussi update météo
         if (demo_results.step2_weather_sync?.success) {
           schedulerService.broadcastWeatherUpdate({
             type: 'weather_demo',
@@ -522,20 +562,21 @@ if (process.env.NODE_ENV === 'development') {
       
       res.json({
         success: true,
-        message: '🎬 Démo complète AirLight avec météo exécutée',
+        message: ' Démo complète AirLight avec météo exécutée',
         demo_results,
         next_steps: [
           '1. Vérifiez les alertes créées dans /alerts',
           '2. Consultez les prédictions dans /predictions/sensors',
           '3. Explorez la météo dans /weather/dashboard',
-          '4. Analysez corrélation météo/pollution dans /weather/cities', 
+          '4. Analysez corrélation météo/pollution dans /weather/cities',
           '5. Observez les stats temps réel via WebSocket',
-          '6. Accédez au dashboard admin dans /admin/dashboard'
+          '6. Accédez au dashboard admin dans /admin/dashboard',
+          '7. Testez les rapports email dans /admin/test-email-report'
         ]
       });
       
     } catch (error) {
-      console.error(' Erreur démo:', error);
+      console.error('❌ Erreur démo:', error);
       res.status(500).json({
         success: false,
         message: 'Erreur lors de la démo',
@@ -553,14 +594,14 @@ app.use((req, res) => {
     suggestion: 'Consultez la documentation sur GET /',
     available_routes: [
       '/auth/*', '/sensors/*', '/alerts/*', 
-      '/predictions/*', '/admin/*', '/weather/*', '/health' 
+      '/predictions/*', '/admin/*', '/weather/*', '/health'
     ]
   });
 });
 
 // Middleware de gestion des erreurs globales
 app.use((error, req, res, next) => {
-  console.error(' Erreur serveur:', error);
+  console.error('❌ Erreur serveur:', error);
   
   // Erreurs de validation MongoDB
   if (error.name === 'ValidationError') {
@@ -604,29 +645,30 @@ function gracefulShutdown(signal) {
   // Arrêter le scheduler
   schedulerService.stopAll();
   
+  // ✅ Arrêter le cron tri-weekly
+  stopTriWeeklyReport();
+  
   // Fermer le serveur
   server.close(async () => {
-    console.log(' Serveur HTTP fermé');
+    console.log('✅ Serveur HTTP fermé');
     
     // Fermer la connexion MongoDB
     try {
       await mongoose.connection.close();
-      console.log(' Connexion MongoDB fermée');
+      console.log('✅ Connexion MongoDB fermée');
       process.exit(0);
     } catch (err) {
-      console.error(' Erreur fermeture MongoDB:', err);
+      console.error('❌ Erreur fermeture MongoDB:', err);
       process.exit(1);
     }
   });
   
   // Forcer l'arrêt après 10 secondes
   setTimeout(() => {
-    console.error(' Arrêt forcé après timeout');
+    console.error('Arrêt forcé après timeout');
     process.exit(1);
   }, 10000);
 }
-  
-  
 
 // Démarrage du serveur
 const PORT = process.env.PORT || 3000;
@@ -635,21 +677,23 @@ server.listen(PORT, () => {
   console.log(' AirLight API démarrée avec succès');
   console.log(' =================================');
   console.log(` Serveur: http://localhost:${PORT}`);
-  console.log(` Google OAuth: ${process.env.GOOGLE_CALLBACK_URL || 'Non configuré'}`);
-  console.log(` WebSocket: ws://localhost:${PORT}/socket.io`);
+  console.log(` Google OAuth: ${process.env.GOOGLE_CALLBACK_URL || 'Non configuré '}`);
+  console.log(`⚡ WebSocket: ws://localhost:${PORT}/socket.io`);
   console.log(` Service IA: ${process.env.FLASK_API_URL || 'http://localhost:5000'}`);
-  console.log(` Service météo: ${process.env.OPENWEATHER_API_KEY ? 'OpenWeatherMap configuré' : 'Non configuré'}`); // 🌤️
+  console.log(` Service météo: ${process.env.OPENWEATHER_API_KEY ? 'OpenWeatherMap configuré ' : 'Non configuré ⚠️'}`);
+  console.log(` Rapports email: ${getTriWeeklyReportStatus().isScheduled ? 'Activés (tous les 3j à 20h)' : 'Désactivés ⚠️'}`);
   console.log(` Dashboard: http://localhost:${PORT}/admin/dashboard`);
-  console.log(` Météo: http://localhost:${PORT}/weather/dashboard`); 
+  console.log(` Météo: http://localhost:${PORT}/weather/dashboard`);
   console.log(` Santé: http://localhost:${PORT}/health`);
   
   if (process.env.NODE_ENV === 'development') {
     console.log(` Démo: http://localhost:${PORT}/demo/full`);
-    console.log(` Test météo: http://localhost:${PORT}/test/weather`); 
+    console.log(` Test météo: POST http://localhost:${PORT}/test/weather`);
+    console.log(` Test email: POST http://localhost:${PORT}/admin/test-email-report`);
     console.log(' Mode développement - Routes de test disponibles');
   }
   
   console.log(' =================================\n');
 });
 
-module.exports = server; 
+module.exports = server;
