@@ -92,7 +92,14 @@ def predict():
 
         X = df[feature_cols].fillna(0)
         y = df['pm25'].values
+        
+        MAX_TRAINING_POINTS = 1500  # Au lieu de 3000+
 
+        if len(X) > MAX_TRAINING_POINTS:
+            # Garder les plus récentes
+            X = X[-MAX_TRAINING_POINTS:]
+            y = y[-MAX_TRAINING_POINTS:]
+            print(f"   ⚠️ Données limitées à {MAX_TRAINING_POINTS} points")
         global scaler, FEATURE_COLUMNS
         FEATURE_COLUMNS = feature_cols
         X_scaled = scaler.fit_transform(X)
@@ -107,9 +114,9 @@ def predict():
         # Random Forest - paramètres plus stricts
         global rf_model
         rf_model = RandomForestRegressor(
-            n_estimators=150,
-            max_depth=12,            # ← réduit de 15 → moins de surapprentissage
-            min_samples_split=8,     # ← plus strict
+            n_estimators=50,
+            max_depth=10,            # ← réduit de 15 → moins de surapprentissage
+            min_samples_split=10,     # ← plus strict
             min_samples_leaf=4,      # ← plus strict
             max_features='sqrt',
             random_state=42,
@@ -121,11 +128,11 @@ def predict():
         # Gradient Boosting - paramètres plus stricts
         global gb_model
         gb_model = GradientBoostingRegressor(
-            n_estimators=100,
+            n_estimators=50,
             learning_rate=0.05,
-            max_depth=4,             # ← réduit de 5
-            min_samples_split=8,
-            min_samples_leaf=4,
+            max_depth=3,             # ← réduit de 5
+            min_samples_split=10,
+            min_samples_leaf=5,
             subsample=0.8,
             random_state=42
         )
