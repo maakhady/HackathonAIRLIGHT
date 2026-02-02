@@ -1,3 +1,71 @@
+# Node.js
 node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+.pnpm-debug.log*
+
+# Environment variables
 .env
+.env.local
+.env.*.local
+
+# Python Virtual Environment
+ia/
+venv/
+env/
+ENV/
+.venv/
+*.egg-info/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Angular
+dist/
+.angular/
+*.ngfactory.ts
+*.ngsummary.json
+*.metadata.json
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDEs
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Logs
+logs/
+*.log
+
+# Build files
+build/
+out/
+tmp/
+temp/
+
+# Backup
 backup_airlight/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# ML Models (si trop gros)
+# Service_IA/models/*.pkl
+# Service_IA/models/*.h5
