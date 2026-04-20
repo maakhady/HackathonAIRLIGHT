@@ -3,7 +3,7 @@ const nodemailer = require('nodemailer');
 // Configuration du transporteur email
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
+  port: parseInt(process.env.EMAIL_PORT) || 587, // 587 = TLS Gmail par défaut
   secure: false,
   auth: {
     user: process.env.EMAIL_USER,
@@ -18,7 +18,7 @@ const transporter = nodemailer.createTransport({
 const sendEmail = async (to, subject, html) => {
   try {
     const mailOptions = {
-      from: process.env.EMAIL_FROM,
+      from: process.env.EMAIL_FROM || `"AirLight" <${process.env.EMAIL_USER}>`,
       to: to,
       subject: subject,
       html: html,
@@ -268,6 +268,8 @@ const getTriWeeklyReportTemplate = (data) => {
   };
 
   const getOrdinal = (n) => (n === 1 ? 'er' : 'ème');
+  // APP_URL est l'URL de prod — indépendant de FRONTEND_URL (qui peut être localhost en dev)
+  const appUrl = process.env.APP_URL || 'https://airlight.netlify.app';
 
   return `
 <!DOCTYPE html>
@@ -393,24 +395,26 @@ const getTriWeeklyReportTemplate = (data) => {
     }
     .predictions {
       display: flex;
-      gap: 15px;
+      flex-wrap: wrap;
+      gap: 10px;
       margin-top: 15px;
     }
     .prediction-day {
-      flex: 1;
+      flex: 1 1 calc(14% - 10px);
+      min-width: 80px;
       background: #f8fafc;
-      padding: 15px;
+      padding: 12px;
       border-radius: 8px;
       text-align: center;
       border: 2px solid #e2e8f0;
     }
     .prediction-day .day {
-      font-size: 12px;
+      font-size: 11px;
       color: #64748b;
-      margin-bottom: 8px;
+      margin-bottom: 6px;
     }
     .prediction-day .value {
-      font-size: 24px;
+      font-size: 20px;
       font-weight: bold;
     }
     .city-rank {
@@ -556,8 +560,20 @@ const getTriWeeklyReportTemplate = (data) => {
 
       <!-- Prévisions IA -->
       <div class="section">
-        <div class="section-title">🔮 Prévisions IA (3 prochains jours)</div>
-        
+        <div class="section-title">🔮 Prévisions IA (7 prochains jours)</div>
+
+        ${data.predictionsUnavailable ? `
+        <div style="background: #f1f5f9; border-left: 4px solid #94a3b8; padding: 20px; border-radius: 8px; text-align: center;">
+          <div style="font-size: 24px; margin-bottom: 10px;">📡</div>
+          <strong style="color: #475569; font-size: 16px;">Prédictions non disponibles pour le moment</strong>
+          <p style="color: #64748b; margin-top: 8px; font-size: 14px;">
+            Consultez le site pour suivre la qualité de l'air en temps réel.
+          </p>
+          <a href="${appUrl}" style="display: inline-block; margin-top: 12px; padding: 10px 20px; background: #0f72c9; color: white; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">
+            🌐 Voir en temps réel
+          </a>
+        </div>
+        ` : `
         <div class="predictions">
           ${data.predictions.map(pred => `
           <div class="prediction-day" style="border-color: ${getAqiClass(pred.aqi).color};">
@@ -580,6 +596,7 @@ const getTriWeeklyReportTemplate = (data) => {
           </div>
         </div>
         ` : ''}
+        `}
       </div>
 
       <!-- Classement des villes -->
@@ -653,7 +670,7 @@ const getTriWeeklyReportTemplate = (data) => {
 
       <!-- CTA -->
       <div style="text-align: center; padding: 30px 0;">
-        <a href="${process.env.FRONTEND_URL || 'https://airlight.netlify.app'}" class="btn">
+        <a href="${appUrl}" class="btn">
           📊 Voir le tableau de bord complet
         </a>
       </div>
@@ -663,10 +680,6 @@ const getTriWeeklyReportTemplate = (data) => {
     <div class="footer">
       <p style="margin-bottom: 10px;">
         Vous recevez cet email car vous êtes abonné aux rapports AirLight.
-      </p>
-      <p style="margin-bottom: 15px;">
-        <a href="${process.env.FRONTEND_URL || 'https://airlight.netlify.app'}/settings">Gérer mes préférences</a> • 
-        <a href="${process.env.FRONTEND_URL || 'https://airlight.netlify.app'}/unsubscribe?email=${data.userEmail}">Se désabonner</a>
       </p>
       <p style="font-size: 12px; color: #94a3b8;">
         © 2026 AirLight - Surveillance de la qualité de l'air au Sénégal<br>

@@ -114,6 +114,18 @@ router.get('/dashboard', async (req, res) => {
 // ✅ ROUTE : Envoyer rapport tri-hebdomadaire à tous les abonnés
 router.post('/send-triweekly-report', async (req, res) => {
   try {
+    const { email } = req.body;
+
+    // Si un email est fourni, envoi ciblé uniquement à cet utilisateur
+    if (email) {
+      const result = await TriWeeklyReportService.generateAndSendToEmail(email);
+      return res.json({
+        success: true,
+        message: `Rapport envoyé à ${email}`,
+        data: result
+      });
+    }
+
     const result = await TriWeeklyReportService.generateAndSendReports();
     res.json({
       success: true,
@@ -122,9 +134,9 @@ router.post('/send-triweekly-report', async (req, res) => {
     });
   } catch (error) {
     console.error('Erreur envoi rapport:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: error.message 
+      error: error.message
     });
   }
 });
@@ -134,15 +146,19 @@ router.post('/test-email-report', async (req, res) => {
   try {
     const testEmail = req.body.email || 'makhadypro@gmail.com';
     
+    const now = new Date();
+    const startDate = new Date(now); startDate.setDate(now.getDate() - 3);
+    const fmt = (d) => `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+
     const reportData = {
       userEmail: testEmail,
       userName: 'Mame Khady',
       userCity: 'Dakar',
-      period: '30/01 - 02/02/2026',
+      period: `${fmt(startDate)} - ${fmt(now)}/${now.getFullYear()}`,
       daysCount: 3,
       avgAqi: 68,
-      bestDay: { date: '30/01', aqi: 42 },
-      worstDay: { date: '01/02', aqi: 89 },
+      bestDay: { date: fmt(startDate), aqi: 42 },
+      worstDay: { date: fmt(new Date(now.getTime() - 86400000)), aqi: 89 },
       trendPercentage: -12,
       alertsCount: 3,
       topCities: [

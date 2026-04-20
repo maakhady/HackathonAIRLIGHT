@@ -1,6 +1,7 @@
 const moment = require('moment');
 const User = require('../models/User');
 const SensorData = require('../models/SensorData');
+const Prediction = require('../models/Prediction');
 const { sendTriWeeklyReport } = require('../config/email');
 
 class TriWeeklyReportService {
@@ -39,6 +40,12 @@ class TriWeeklyReportService {
   }
 }
 
+  async generateAndSendToEmail(email) {
+    const user = await User.findOne({ email, isActive: true });
+    if (!user) throw new Error(`Utilisateur introuvable ou inactif : ${email}`);
+    return this.generateAndSendForUser(user);
+  }
+
   async generateAndSendForUser(user) {
     try {
       console.log(`📧 Génération rapport pour ${user.email}...`);
@@ -48,28 +55,29 @@ class TriWeeklyReportService {
 
       return result;
     } catch (error) {
-      console.error(`❌ Erreur pour ${user.email}:`, error);
+      console.error(`❌ Erreur pour ${user.email}:`, error.message);
+      console.error(`❌ Stack:`, error.stack);
       return { success: false, error: error.message };
     }
   }
 
   async collectReportData(user) {
   const endDate = moment().startOf('day');
-  const startDate = moment().subtract(3, 'days').startOf('day');
-  const previousStartDate = moment().subtract(6, 'days').startOf('day');
+  const startDate = moment().subtract(7, 'days').startOf('day');
+  const previousStartDate = moment().subtract(14, 'days').startOf('day');
 
   const userCity = user.city || 'Dakar';
 
   const currentPeriodData = await SensorData.find({
     timestamp: { $gte: startDate.toDate(), $lt: endDate.toDate() }
-  }).populate('sensor');
+  });
 
   const previousPeriodData = await SensorData.find({
     timestamp: { $gte: previousStartDate.toDate(), $lt: startDate.toDate() }
-  }).populate('sensor');
+  });
 
   const stats = this.calculateStatistics(currentPeriodData, previousPeriodData, userCity);
-  const predictions = this.generatePredictions(userCity);
+  const predictions = await this.generatePredictions(userCity);
   const recommendations = this.generateRecommendations(stats);
   const tip = this.getWeeklyTip();
 
@@ -77,10 +85,10 @@ class TriWeeklyReportService {
     userEmail: user.email,
     userName: user.getFullName(),  // ✅ Utilise ta méthode
     userCity,
-    period: `${startDate.format('DD/MM')} - ${endDate.format('DD/MM/YYYY')}`,
-    daysCount: 3,
+    period: `${endDate.format('DD/MM')} - ${moment().add(7, 'days').format('DD/MM/YYYY')}`,
+    daysCount: 7,
     ...stats,
-    predictions,
+    ...predictions,
     recommendations,
     tip
   };
@@ -184,24 +192,83 @@ class TriWeeklyReportService {
     return Math.max(0.1, Math.round(dailyExposure * days * 10) / 10);
   }
 
-  generatePredictions(city) {
-    // TODO: Intégrer avec ton vrai service IA
-    const days = ['Aujourd\'hui', 'Demain', 'Après-demain'];
-    const predictions = days.map((day, i) => ({
-      day,
-      aqi: 45 + Math.random() * 30
-    }));
+  async generatePredictions(city) {
+    try {
+      // Récupérer les sensorIds de la ville depuis les données récentes
+      const recentData = await SensorData.find({
+        'location.city': city,
+        timestamp: { $gte: moment().subtract(24, 'hours').toDate() }
+      }).distinct('sensorId');
 
-    const bestDay = predictions.reduce((best, pred) => 
-      pred.aqi < best.aqi ? pred : best
-    );
+      console.log(`🔮 [PREDICTIONS] Ville: ${city} | Capteurs trouvés: ${recentData.length} | IDs: ${JSON.stringify(recentData)}`);
 
-    return {
-      predictions,
-      bestPredictionDay: {
-        message: `Conditions favorables ${bestDay.day.toLowerCase()} grâce aux vents océaniques`,
-        bestTime: `${bestDay.day} 6h-9h`
+      if (!recentData || recentData.length === 0) {
+        console.log(`⚠️ [PREDICTIONS] Aucun capteur actif pour "${city}" → fallback`);
+        return this.getDefaultPredictions();
       }
+
+      const now = new Date();
+      const in168h = new Date(now.getTime() + 168 * 60 * 60 * 1000);
+
+      // Récupérer les prédictions des 7 prochains jours pour ces capteurs
+      const preds = await Prediction.find({
+        sensorId: { $in: recentData },
+        predictionFor: { $gte: now, $lte: in168h }
+      }).sort({ predictionFor: 1 });
+
+      console.log(`🔮 [PREDICTIONS] Prédictions DB trouvées: ${preds.length}`);
+
+      if (!preds || preds.length === 0) {
+        console.log(`⚠️ [PREDICTIONS] Aucune prédiction en DB pour ces capteurs → fallback`);
+        return this.getDefaultPredictions();
+      }
+
+      // Grouper par jour — labels avec vraies dates futures (ex: "Lun 21/04")
+      const jours = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+      const dayLabels = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+        const label = i === 0 ? "Aujourd'hui" : i === 1 ? 'Demain' : jours[d.getDay()];
+        return `${label} ${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}`;
+      });
+      const dayGroups = Array.from({ length: 7 }, () => ({ sum: 0, count: 0 }));
+
+      preds.forEach(p => {
+        const diffH = (p.predictionFor - now) / (1000 * 60 * 60);
+        const idx = Math.min(Math.floor(diffH / 24), 6);
+        dayGroups[idx].sum += p.predictedAQI;
+        dayGroups[idx].count += 1;
+      });
+
+      const predictions = dayLabels.map((day, i) => ({
+        day,
+        aqi: dayGroups[i].count > 0
+          ? Math.round(dayGroups[i].sum / dayGroups[i].count)
+          : null
+      })).filter(p => p.aqi !== null);
+
+      const bestDay = predictions.length > 0
+        ? predictions.reduce((best, pred) => pred.aqi < best.aqi ? pred : best)
+        : null;
+
+      return {
+        predictions,
+        predictionsUnavailable: predictions.length === 0,
+        bestPredictionDay: bestDay ? {
+          message: `Meilleure qualité d'air prévue : ${bestDay.day} (AQI ${bestDay.aqi})`,
+          bestTime: `${bestDay.day} entre 6h et 9h`
+        } : null
+      };
+    } catch (error) {
+      console.error('⚠️ Erreur récupération prédictions IA, fallback par défaut:', error.message);
+      return this.getDefaultPredictions();
+    }
+  }
+
+  getDefaultPredictions() {
+    return {
+      predictions: [],
+      predictionsUnavailable: true,
+      bestPredictionDay: null
     };
   }
 

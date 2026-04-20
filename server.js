@@ -124,9 +124,10 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/airlight'
     // Initialiser le scheduler après la connexion DB
     setTimeout(() => {
       schedulerService.initialize();
-      
+
       // ✅ Démarrer le cron tri-weekly
       scheduleTriWeeklyReport();
+      console.log(` Rapports email: ${getTriWeeklyReportStatus().isScheduled ? 'Activés (tous les 7j à 20h) ✅' : 'Désactivés ⚠️'}`);
     }, 2000);
   })
   .catch((error) => {
@@ -681,7 +682,7 @@ server.listen(PORT, () => {
   console.log(`⚡ WebSocket: ws://localhost:${PORT}/socket.io`);
   console.log(` Service IA: ${process.env.FLASK_API_URL || 'http://localhost:5000'}`);
   console.log(` Service météo: ${process.env.OPENWEATHER_API_KEY ? 'OpenWeatherMap configuré ' : 'Non configuré ⚠️'}`);
-  console.log(` Rapports email: ${getTriWeeklyReportStatus().isScheduled ? 'Activés (tous les 3j à 20h)' : 'Désactivés ⚠️'}`);
+  console.log(` Rapports email: En attente connexion DB... ⏳`);
   console.log(` Dashboard: http://localhost:${PORT}/admin/dashboard`);
   console.log(` Météo: http://localhost:${PORT}/weather/dashboard`);
   console.log(` Santé: http://localhost:${PORT}/health`);
@@ -692,7 +693,7 @@ server.listen(PORT, () => {
     console.log(` Test email: POST http://localhost:${PORT}/admin/test-email-report`);
     console.log(' Mode développement - Routes de test disponibles');
   }
-  
+
   console.log(' =================================\n');
 });
 

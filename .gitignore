@@ -69,3 +69,9 @@ coverage/
 # ML Models (si trop gros)
 # Service_IA/models/*.pkl
 # Service_IA/models/*.h5
+
+
+# Claude Code - fichiers locaux
+CLAUDE.md
+CLAUDE.local.md
+.claude/settings.local.json

@@ -15,6 +15,15 @@ class AirGradientService {
         city: 'Dakar',
         country: 'SN',
         coordinates: { lat: 14.700509233537487, lng: -17.450791143151584 }
+      }, 
+      { 
+        serialNo: 'd83bda1ce548', 
+        serialNumeric: parseInt('d83bda1ce548', 16),
+        locationId: 168403,
+        name: 'Dakar, Ecole Saint-Eugène de Mazenod', 
+        city: 'Dakar',
+        country: 'SN',
+        coordinates: { lat: 14.7628664, lng: -17.4391048 }
       },
       { 
         serialNo: 'd83bda1ca05c', 
@@ -35,15 +44,15 @@ class AirGradientService {
         country: 'SN',
         coordinates: { lat: 16.4617, lng: -15.7014 }
       },
-      { 
-        serialNo: '588c8126653c', 
-        serialNumeric: parseInt('588c8126653c', 16),
-        locationId: 168371,
-        name: 'Diaksao, Ecole Mbaye Diouf', 
-        city: 'Dakar',
-        country: 'SN',
-        coordinates: { lat: 14.7537687, lng: -17.3715799 }
-      },
+      // { 
+      //   serialNo: '588c8126653c', 
+      //   serialNumeric: parseInt('588c8126653c', 16),
+      //   locationId: 168371,
+      //   name: 'Diaksao, Ecole Mbaye Diouf', 
+      //   city: 'Dakar',
+      //   country: 'SN',
+      //   coordinates: { lat: 14.7537687, lng: -17.3715799 }
+      // },
       { 
         serialNo: '34b7daa1e7f4', 
         serialNumeric: parseInt('34b7daa1e7f4', 16),
@@ -284,21 +293,20 @@ class AirGradientService {
                   
                   const index = processed.findIndex(s => s.location.id === sensor.serialNo);
                   if (index !== -1) {
-                    // ✅ Utiliser le champ 'offline' de l'API (plus fiable)
-                    const isOnline = data.offline === false;
+                    // ✅ Ignorer le flag offline, se baser sur les données réelles
+                    const isOnline = data.pm02 !== null && 
+                      data.pm02 !== undefined && 
+                      this.isRecentTimestamp(data.timestamp);
                     
                     if (isOnline) {
-                      // Capteur vraiment online
                       processed[index] = {
                         location: offlineSensor.location,
                         data: [this.normalizeRealData(data)],
                         status: 'online'
                       };
-                      console.log(`✅ ${sensor.name} - PM2.5: ${data.pm02 !== null ? data.pm02 : 'N/A'}`);
+                      console.log(`✅ ${sensor.name} - PM2.5: ${data.pm02} (timestamp: ${data.timestamp})`);
                     } else {
-                      // Capteur vraiment offline selon l'API
-                      console.log(`⚠️  ${sensor.name} - OFFLINE (API offline=true)`);
-                      // Garder status: 'offline' et data: null
+                      console.log(`⚠️  ${sensor.name} - OFFLINE (pas de données récentes)`);
                     }
                   }
                 }
@@ -370,7 +378,8 @@ class AirGradientService {
         foundLocationIds.add(measurement.locationId);
         
         // ✅ Vérifier le statut offline de l'API
-        const isOnline = measurement.offline === false;
+        const isOnline = measurement.offline === false || 
+          (measurement.pm02 !== null && measurement.pm02 !== undefined && this.isRecentTimestamp(measurement.timestamp));
         
         realSensorsData.push({
           location: {
@@ -477,6 +486,14 @@ class AirGradientService {
       throw error;
     }
   }
+
+  isRecentTimestamp(timestamp, thresholdMinutes = 60) {
+    if (!timestamp) return false;
+      const lastSeen = new Date(timestamp);
+      const now = new Date();
+      const minutesAgo = (now - lastSeen) / 1000 / 60;
+      return minutesAgo < thresholdMinutes;
+}
   
   normalizeRealData(apiData) {
     return {

@@ -3,6 +3,9 @@
 
 import os
 
+# Module WSGI — pointe vers le vrai service IA v3
+wsgi_app = "app_optimized_7days:app"
+
 # Bind
 bind = "0.0.0.0:5000"
 
@@ -37,4 +40,4 @@ print(f"   Workers: {workers}")
 print(f"   Threads: {threads}")
 print(f"   Timeout: {timeout}s")
 print(f"   Max requests: {max_requests}")
-print("=" * 60)
+print("=" * 60)                          
