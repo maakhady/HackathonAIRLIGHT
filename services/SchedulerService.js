@@ -218,16 +218,15 @@ class SchedulerService {
       
       for (const sensorId of activeSensors) {
         try {
-          // ✅ NOUVEAU : Vérifier d'abord si des prédictions récentes existent
+          // Compter les prédictions futures encore valides (pas de filtre sur createdAt)
           const existingPredictions = await Prediction.countDocuments({
             sensorId,
-            predictionFor: { $gte: new Date() },
-            createdAt: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) } // Créées dans les 6 dernières heures
+            predictionFor: { $gte: new Date() }
           });
 
-          // Si le capteur a déjà suffisamment de prédictions, on skip
+          // Skip seulement si le capteur a encore assez de prédictions futures
           if (existingPredictions >= this.REGENERATION_THRESHOLD) {
-            console.log(`⏭️ ${sensorId}: ${existingPredictions} prédictions récentes, skip`);
+            console.log(`⏭️ ${sensorId}: ${existingPredictions} prédictions futures, skip`);
             skippedCount++;
             continue;
           }
