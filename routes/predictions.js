@@ -214,7 +214,7 @@ router.get('/ai-service/health', async (req, res) => {
 // ✅ POST /predictions/batch/generate - AVANT /:sensorId
 router.post('/batch/generate', authService.requireAdmin.bind(authService), async (req, res) => {
   try {
-    const { hoursAhead = 168 } = req.body;
+    const { hoursAhead = 168 } = req.body || {};
 
     const SensorData = require('../models/SensorData');
     const activeSensors = await SensorData.distinct('sensorId', {
@@ -626,7 +626,7 @@ router.get('/:sensorId/dashboard', async (req, res) => {
 router.post('/:sensorId/generate', authService.authenticateToken.bind(authService), async (req, res) => {
   try {
     const { sensorId } = req.params;
-    const { hoursAhead = 168 } = req.body;
+    const { hoursAhead = 168 } = req.body || {};
 
     if (hoursAhead < 1 || hoursAhead > 168) {
       return res.status(400).json({
@@ -651,13 +651,9 @@ router.post('/:sensorId/generate', authService.authenticateToken.bind(authServic
 
   } catch (error) {
     console.error('❌ Erreur génération prédiction:', error.message);
-    console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la génération de prédiction',
-      // ⚠️ Temporaire pour debug — à retirer avant la prochaine release
-      debug_error: error.message,
-      debug_stack: error.stack?.split('\n').slice(0, 5)
+      message: 'Erreur lors de la génération de prédiction'
     });
   }
 });
