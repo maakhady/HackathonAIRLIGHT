@@ -6,8 +6,9 @@ import os
 # Module WSGI — pointe vers le vrai service IA v3
 wsgi_app = "app_optimized_7days:app"
 
-# Bind
-bind = "0.0.0.0:5000"
+# Bind — utilise $PORT si défini (Render), sinon 5000 (local)
+import os
+bind = f"0.0.0.0:{os.environ.get('PORT', '5000')}"
 
 # Workers - UN SEUL pour économiser RAM
 workers = 1
