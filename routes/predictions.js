@@ -651,9 +651,13 @@ router.post('/:sensorId/generate', authService.authenticateToken.bind(authServic
 
   } catch (error) {
     console.error('❌ Erreur génération prédiction:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({
       success: false,
-      message: 'Erreur lors de la génération de prédiction'
+      message: 'Erreur lors de la génération de prédiction',
+      // ⚠️ Temporaire pour debug — à retirer avant la prochaine release
+      debug_error: error.message,
+      debug_stack: error.stack?.split('\n').slice(0, 5)
     });
   }
 });
