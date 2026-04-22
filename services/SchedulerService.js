@@ -27,7 +27,7 @@ class SchedulerService {
     this.MAX_LOGS = 500;
 
     this.PREDICTION_HOURS = 168; // 7 jours
-    this.REGENERATION_THRESHOLD = 72; // Régénérer si < 3 jours restants
+    this.REGENERATION_THRESHOLD = 120; // Régénérer si < 5 jours restants (garantit toujours 24h/48h dispo)
   }
  
 
