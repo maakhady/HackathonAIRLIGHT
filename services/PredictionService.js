@@ -541,7 +541,8 @@ class PredictionService {
 
   async checkAIServiceHealth() {
     try {
-      const r = await axios.get(`${this.aiServiceUrl}/`, { timeout: 5000 });
+      // Timeout 60s pour absorber le cold start du tier gratuit Render (~50s)
+      const r = await axios.get(`${this.aiServiceUrl}/`, { timeout: 60000 });
       return { available: r.status === 200 };
     } catch (e) {
       return { available: false, error: e.message };

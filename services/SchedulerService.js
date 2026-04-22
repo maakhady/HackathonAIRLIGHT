@@ -848,7 +848,8 @@ class SchedulerService {
 
   // Job de vérification santé IA
   setupAIHealthCheckJob() {
-    const job = cron.schedule('*/30 * * * *', async () => {
+    // ⏱️ Toutes les 14 min pour garder Flask éveillé (Render endort après 15 min)
+    const job = cron.schedule('*/14 * * * *', async () => {
       const started = Date.now();
       this.addLog('info', '🔎 Vérification santé du service IA');
 
@@ -912,8 +913,8 @@ class SchedulerService {
     
     this.jobs.set('aiHealthCheck', job);
     job.start();
-    this.addLog('info', '- Job vérification santé IA programmé (toutes les 30 minutes)');
-    console.log('- Job vérification santé IA programmé (toutes les 30 minutes)');
+    this.addLog('info', '- Job vérification santé IA programmé (toutes les 14 minutes)');
+    console.log('- Job vérification santé IA programmé (toutes les 14 minutes)');
   }
 
   // Job de nettoyage prédictions
