@@ -142,12 +142,14 @@ app.use('/predictions', predictionRoutes);
 app.use('/admin', adminRoutes);
 app.use('/weather', weatherRoutes);
 
+// Instance unique de PredictionService (évite la fuite mémoire sur /health)
+const PredictionService = require('./services/PredictionService');
+const predictionService = new PredictionService();
+
 // Route de santé complète avec météo
 app.get('/health', async (req, res) => {
   try {
     // Vérifier les services
-    const PredictionService = require('./services/PredictionService');
-    const predictionService = new PredictionService();
     const aiHealth = await predictionService.checkAIServiceHealth();
     
     // Vérifier le service météo
