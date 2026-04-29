@@ -14,27 +14,29 @@ passport.use(new GoogleStrategy({
 },
 async (accessToken, refreshToken, profile, done) => {
   try {
-    // Extraire les données du profil Google
+    // Extraire les données du profil Google (familyName peut être absent)
     const googleData = {
       googleId: profile.id,
       email: profile.emails[0].value,
-      firstName: profile.name.givenName,
-      lastName: profile.name.familyName,
-      avatar: profile.photos[0].value
+      firstName: profile.name.givenName || 'Utilisateur',
+      lastName: profile.name.familyName || profile.name.givenName || 'Google',
+      avatar: profile.photos?.[0]?.value || null
     };
 
     // Utiliser le service d'authentification pour gérer l'utilisateur
     const result = await authService.googleAuth(googleData);
-    
+
     if (result.success) {
       return done(null, result);
     } else {
-      return done(new Error(result.message), null);
+      // done(null, false) → déclenche failureRedirect (pas une erreur 500)
+      return done(null, false);
     }
-    
+
   } catch (error) {
     console.error('❌ Erreur stratégie Google:', error.message);
-    return done(error, null);
+    // done(null, false) → failureRedirect au lieu de 500
+    return done(null, false);
   }
 }));
 
