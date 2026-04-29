@@ -114,7 +114,7 @@ router.get('/dashboard', async (req, res) => {
 // ✅ ROUTE : Envoyer rapport tri-hebdomadaire à tous les abonnés
 router.post('/send-triweekly-report', async (req, res) => {
   try {
-    const { email } = req.body;
+    const email = req.body?.email;
 
     // Si un email est fourni, envoi ciblé uniquement à cet utilisateur
     if (email) {
@@ -144,7 +144,7 @@ router.post('/send-triweekly-report', async (req, res) => {
 // ✅ ROUTE : Test email rapport (sans auth admin requise pour faciliter le test)
 router.post('/test-email-report', async (req, res) => {
   try {
-    const testEmail = req.body.email || 'makhadypro@gmail.com';
+    const testEmail = req.body?.email || 'makhadypro@gmail.com';
     
     const now = new Date();
     const startDate = new Date(now); startDate.setDate(now.getDate() - 3);

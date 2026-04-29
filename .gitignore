@@ -75,3 +75,7 @@ coverage/
 CLAUDE.md
 CLAUDE.local.md
 .claude/settings.local.json
+
+# Documentation locale
+Documentation-BackAirlight.html
+*.pdf
