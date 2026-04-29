@@ -1,25 +1,31 @@
-const { Resend } = require('resend');
+const nodemailer = require('nodemailer');
 
-// ✅ Resend utilisé à la place de nodemailer (Render bloque tous les ports SMTP)
-const resend = new Resend(process.env.RESEND_API_KEY);
+// ✅ Brevo SMTP (smtp-relay.brevo.com) — remplace Gmail SMTP bloqué par Render
+const transporter = nodemailer.createTransport({
+  host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
+  port: parseInt(process.env.EMAIL_PORT) || 587,
+  secure: false,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD,
+  },
+  tls: {
+    rejectUnauthorized: false
+  }
+});
 
-// Fonction pour envoyer un email via Resend
+// Fonction pour envoyer un email
 const sendEmail = async (to, subject, html) => {
   try {
-    const { data, error } = await resend.emails.send({
-      from: process.env.EMAIL_FROM || 'AirLight <onboarding@resend.dev>',
+    const info = await transporter.sendMail({
+      from: process.env.EMAIL_FROM || '"AirLight" <galseniot@gmail.com>',
       to: to,
       subject: subject,
       html: html,
     });
 
-    if (error) {
-      console.error('Erreur Resend:', error);
-      throw new Error(error.message);
-    }
-
-    console.log('✅ Email envoyé via Resend:', data.id);
-    return { success: true, messageId: data.id };
+    console.log('✅ Email envoyé via Brevo:', info.messageId);
+    return { success: true, messageId: info.messageId };
   } catch (error) {
     console.error('❌ Erreur lors de l\'envoi de l\'email:', error);
     throw error;
@@ -204,13 +210,11 @@ const sendPasswordResetCode = async (email, code, userName) => {
   return await sendEmail(email, subject, html);
 };
 
-// Test de la connexion email (vérifie que la clé Resend est définie)
+// Test de la connexion email
 const testEmailConnection = async () => {
   try {
-    if (!process.env.RESEND_API_KEY) {
-      throw new Error('RESEND_API_KEY non définie');
-    }
-    console.log('✅ Configuration Resend valide');
+    await transporter.verify();
+    console.log('✅ Configuration Brevo valide');
     return true;
   } catch (error) {
     console.error('❌ Erreur de configuration email:', error);
@@ -699,6 +703,7 @@ module.exports = {
   sendEmail,
   sendPasswordResetCode,
   sendTriWeeklyReport,
-  testEmailConnection
+  testEmailConnection,
+  transporter
 };
 
