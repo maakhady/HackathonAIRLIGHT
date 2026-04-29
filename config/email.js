@@ -1,34 +1,33 @@
-const nodemailer = require('nodemailer');
+const axios = require('axios');
 
-// ✅ Brevo SMTP (smtp-relay.brevo.com) — remplace Gmail SMTP bloqué par Render
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp-relay.brevo.com',
-  port: parseInt(process.env.EMAIL_PORT) || 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-  tls: {
-    rejectUnauthorized: false
-  }
-});
+// ✅ Brevo API HTTP — contourne le blocage SMTP de Render
+const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
-// Fonction pour envoyer un email
+// Fonction pour envoyer un email via l'API HTTP Brevo
 const sendEmail = async (to, subject, html) => {
   try {
-    const info = await transporter.sendMail({
-      from: process.env.EMAIL_FROM || '"AirLight" <galseniot@gmail.com>',
-      to: to,
+    const response = await axios.post(BREVO_API_URL, {
+      sender: {
+        name: 'AirLight',
+        email: process.env.BREVO_SENDER_EMAIL || 'galseniot@gmail.com'
+      },
+      to: [{ email: to }],
       subject: subject,
-      html: html,
+      htmlContent: html
+    }, {
+      headers: {
+        'api-key': process.env.BREVO_API_KEY,
+        'Content-Type': 'application/json'
+      },
+      timeout: 15000
     });
 
-    console.log('✅ Email envoyé via Brevo:', info.messageId);
-    return { success: true, messageId: info.messageId };
+    console.log('✅ Email envoyé via Brevo API:', response.data.messageId);
+    return { success: true, messageId: response.data.messageId };
   } catch (error) {
-    console.error('❌ Erreur lors de l\'envoi de l\'email:', error);
-    throw error;
+    const msg = error.response?.data?.message || error.message;
+    console.error('❌ Erreur Brevo API:', msg);
+    throw new Error(msg);
   }
 };
 
@@ -213,11 +212,11 @@ const sendPasswordResetCode = async (email, code, userName) => {
 // Test de la connexion email
 const testEmailConnection = async () => {
   try {
-    await transporter.verify();
-    console.log('✅ Configuration Brevo valide');
+    if (!process.env.BREVO_API_KEY) throw new Error('BREVO_API_KEY non définie');
+    console.log('✅ Configuration Brevo API valide');
     return true;
   } catch (error) {
-    console.error('❌ Erreur de configuration email:', error);
+    console.error('❌ Erreur configuration email:', error.message);
     return false;
   }
 };
@@ -703,7 +702,6 @@ module.exports = {
   sendEmail,
   sendPasswordResetCode,
   sendTriWeeklyReport,
-  testEmailConnection,
-  transporter
+  testEmailConnection
 };
 
