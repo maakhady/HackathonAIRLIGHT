@@ -24,11 +24,13 @@ class TriWeeklyReportService {
       return { successful: 0, total: 0 };
     }
 
-    const results = await Promise.allSettled(
-      subscribers.map(user => this.generateAndSendForUser(user))
-    );
+    // Traitement séquentiel pour éviter le OOM (pas de Promise.allSettled parallèle)
+    let successful = 0;
+    for (const user of subscribers) {
+      const result = await this.generateAndSendForUser(user);
+      if (result.success) successful++;
+    }
 
-    const successful = results.filter(r => r.status === 'fulfilled' && r.value.success).length;
     console.log(`\n✅ ${successful}/${subscribers.length} rapports envoyés avec succès`);
     console.log('===== FIN GÉNÉRATION RAPPORT =====\n');
 
@@ -62,37 +64,78 @@ class TriWeeklyReportService {
   }
 
   async collectReportData(user) {
-  const endDate = moment().startOf('day');
-  const startDate = moment().subtract(7, 'days').startOf('day');
-  const previousStartDate = moment().subtract(14, 'days').startOf('day');
+    const endDate = moment().startOf('day');
+    const startDate = moment().subtract(7, 'days').startOf('day');
+    const previousStartDate = moment().subtract(14, 'days').startOf('day');
 
-  const userCity = user.city || 'Dakar';
+    const userCity = user.city || 'Dakar';
 
-  const currentPeriodData = await SensorData.find({
-    timestamp: { $gte: startDate.toDate(), $lt: endDate.toDate() }
-  });
+    // Agrégation MongoDB — calcul des stats directement en base, zéro document chargé en RAM
+    const [currentAgg, previousAgg, cityAgg] = await Promise.all([
+      SensorData.aggregate([
+        { $match: { 'location.city': userCity, timestamp: { $gte: startDate.toDate(), $lt: endDate.toDate() }, airQualityIndex: { $ne: null } } },
+        { $group: { _id: { $dateToString: { format: '%d/%m', date: '$timestamp' } }, avgAqi: { $avg: '$airQualityIndex' }, count: { $sum: 1 } } }
+      ]),
+      SensorData.aggregate([
+        { $match: { 'location.city': userCity, timestamp: { $gte: previousStartDate.toDate(), $lt: startDate.toDate() }, airQualityIndex: { $ne: null } } },
+        { $group: { _id: null, avgAqi: { $avg: '$airQualityIndex' } } }
+      ]),
+      SensorData.aggregate([
+        { $match: { timestamp: { $gte: startDate.toDate(), $lt: endDate.toDate() }, airQualityIndex: { $ne: null }, 'location.city': { $ne: null } } },
+        { $group: { _id: '$location.city', avgAqi: { $avg: '$airQualityIndex' } } },
+        { $sort: { avgAqi: 1 } }
+      ])
+    ]);
 
-  const previousPeriodData = await SensorData.find({
-    timestamp: { $gte: previousStartDate.toDate(), $lt: startDate.toDate() }
-  });
+    const stats = this.calculateStatisticsFromAgg(currentAgg, previousAgg, cityAgg, userCity);
+    const predictions = await this.generatePredictions(userCity);
+    const recommendations = this.generateRecommendations(stats);
+    const tip = this.getWeeklyTip();
 
-  const stats = this.calculateStatistics(currentPeriodData, previousPeriodData, userCity);
-  const predictions = await this.generatePredictions(userCity);
-  const recommendations = this.generateRecommendations(stats);
-  const tip = this.getWeeklyTip();
+    return {
+      userEmail: user.email,
+      userName: user.getFullName(),
+      userCity,
+      period: `${endDate.format('DD/MM')} - ${moment().add(7, 'days').format('DD/MM/YYYY')}`,
+      daysCount: 7,
+      ...stats,
+      ...predictions,
+      recommendations,
+      tip
+    };
+  }
 
-  return {
-    userEmail: user.email,
-    userName: user.getFullName(),  // ✅ Utilise ta méthode
-    userCity,
-    period: `${endDate.format('DD/MM')} - ${moment().add(7, 'days').format('DD/MM/YYYY')}`,
-    daysCount: 7,
-    ...stats,
-    ...predictions,
-    recommendations,
-    tip
-  };
-}
+  calculateStatisticsFromAgg(currentAgg, previousAgg, cityAgg, userCity) {
+    if (currentAgg.length === 0) return this.getDefaultStats(userCity);
+
+    const avgAqi = currentAgg.reduce((s, d) => s + d.avgAqi, 0) / currentAgg.length;
+
+    const bestDay = currentAgg.reduce((b, d) => d.avgAqi < b.aqi ? { date: d._id, aqi: d.avgAqi } : b, { date: '', aqi: Infinity });
+    const worstDay = currentAgg.reduce((w, d) => d.avgAqi > w.aqi ? { date: d._id, aqi: d.avgAqi } : w, { date: '', aqi: 0 });
+
+    const prevAvgAqi = previousAgg.length > 0 ? previousAgg[0].avgAqi : avgAqi;
+    const trendPercentage = Math.round(((avgAqi - prevAvgAqi) / prevAvgAqi) * 100);
+
+    const alertsCount = currentAgg.filter(d => d.avgAqi > 100).length;
+
+    const topCities = cityAgg.map(c => ({ name: c._id, aqi: Math.round(c.avgAqi) }));
+    const userCityRank = topCities.findIndex(c => c.name === userCity) + 1;
+
+    const cigaretteEquivalent = this.calculateCigaretteEquivalent(avgAqi, 3);
+    const unhealthyHours = currentAgg.filter(d => d.avgAqi > 50).reduce((s, d) => s + d.count, 0) / 2;
+
+    return {
+      avgAqi,
+      bestDay: { date: bestDay.date, aqi: bestDay.aqi },
+      worstDay: { date: worstDay.date, aqi: worstDay.aqi },
+      trendPercentage,
+      alertsCount,
+      topCities,
+      userCityRank: userCityRank > 0 ? { position: userCityRank, total: topCities.length } : null,
+      cigaretteEquivalent,
+      unhealthyHours: Math.round(unhealthyHours)
+    };
+  }
 
   calculateStatistics(currentData, previousData, userCity) {
     // ✅ Filtrer par location.city (pas sensor.city)
