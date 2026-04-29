@@ -1,36 +1,27 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-// Configuration du transporteur email
-// Port 465 (SSL) utilisé en prod car Render bloque le port 587 (STARTTLS)
-const isProduction = process.env.NODE_ENV === 'production';
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: isProduction ? 465 : (parseInt(process.env.EMAIL_PORT) || 587),
-  secure: isProduction, // true = SSL (465), false = STARTTLS (587)
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD,
-  },
-  tls: {
-    rejectUnauthorized: false
-  }
-});
+// ✅ Resend utilisé à la place de nodemailer (Render bloque tous les ports SMTP)
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// Fonction pour envoyer un email
+// Fonction pour envoyer un email via Resend
 const sendEmail = async (to, subject, html) => {
   try {
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || `"AirLight" <${process.env.EMAIL_USER}>`,
+    const { data, error } = await resend.emails.send({
+      from: process.env.EMAIL_FROM || 'AirLight <onboarding@resend.dev>',
       to: to,
       subject: subject,
       html: html,
-    };
+    });
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Email envoyé: ', info.messageId);
-    return { success: true, messageId: info.messageId };
+    if (error) {
+      console.error('Erreur Resend:', error);
+      throw new Error(error.message);
+    }
+
+    console.log('✅ Email envoyé via Resend:', data.id);
+    return { success: true, messageId: data.id };
   } catch (error) {
-    console.error('Erreur lors de l\'envoi de l\'email:', error);
+    console.error('❌ Erreur lors de l\'envoi de l\'email:', error);
     throw error;
   }
 };
@@ -213,11 +204,13 @@ const sendPasswordResetCode = async (email, code, userName) => {
   return await sendEmail(email, subject, html);
 };
 
-// Test de la connexion email
+// Test de la connexion email (vérifie que la clé Resend est définie)
 const testEmailConnection = async () => {
   try {
-    await transporter.verify();
-    console.log('✅ Configuration email valide');
+    if (!process.env.RESEND_API_KEY) {
+      throw new Error('RESEND_API_KEY non définie');
+    }
+    console.log('✅ Configuration Resend valide');
     return true;
   } catch (error) {
     console.error('❌ Erreur de configuration email:', error);
@@ -706,7 +699,6 @@ module.exports = {
   sendEmail,
   sendPasswordResetCode,
   sendTriWeeklyReport,
-  testEmailConnection,
-  transporter
+  testEmailConnection
 };
 
