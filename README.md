@@ -94,7 +94,7 @@ python app_optimized_7days.py
 - Faire communiquer des **microservices** (Node.js ↔ Flask) de façon résiliente (timeouts, keep-alive)
 - Déployer et **optimiser sous contraintes réelles** : fuites mémoire corrigées, agrégations MongoDB à la place de requêtes massives, adaptation au free tier de Render
 
-## 👩🏽‍💻 Auteure
+## 👩🏽‍💻 Auteur
 
 **Mame Khady Laye DIAW** — Développeuse Full-Stack, Dakar
 [GitHub](https://github.com/maakhady) · [LinkedIn](https://linkedin.com/in/mamekhady)
