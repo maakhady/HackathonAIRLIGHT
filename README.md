@@ -8,17 +8,17 @@ AirLight collecte en continu les données de capteurs de qualité de l'air, les 
 
 ---
 
-## ✨ Fonctionnalités
+##  Fonctionnalités
 
-- 📡 **Collecte temps réel** des données de capteurs (PM2.5, PM10, CO₂, température, humidité) via l'intégration AirGradient
-- 🤖 **Prédictions IA sur 7 jours** de la qualité de l'air (AQI), régénérées automatiquement
-- 🌦️ **Enrichissement météo** des données et des prédictions
-- 🔔 **Système d'alertes** en cas de dépassement des seuils de pollution
-- 📧 **Rapports automatiques par email** (3 fois par semaine, via cron + API Brevo)
-- 🔐 **Authentification Google OAuth** (Passport.js) et espace administrateur
-- 🛡️ **Sécurité** : Helmet, rate limiting, sessions MongoDB
+-  **Collecte temps réel** des données de capteurs (PM2.5, PM10, CO₂, température, humidité) via l'intégration AirGradient
+-  **Prédictions IA sur 7 jours** de la qualité de l'air (AQI), régénérées automatiquement
+-  **Enrichissement météo** des données et des prédictions
+-  **Système d'alertes** en cas de dépassement des seuils de pollution
+-  **Rapports automatiques par email** (3 fois par semaine, via cron + API Brevo)
+-  **Authentification Google OAuth** (Passport.js) et espace administrateur
+-  **Sécurité** : Helmet, rate limiting, sessions MongoDB
 
-## 🏗️ Architecture
+##  Architecture
 
 Le projet suit une architecture en microservices :
 
@@ -43,7 +43,7 @@ Capteurs AirGradient ──► Backend Node.js/Express ◄──► Service IA F
 - Métriques : MAE, RMSE, R²
 - Lissage entre prédictions consécutives pour éviter les oscillations
 
-## 🛠️ Stack technique
+##  Stack technique
 
 | Couche | Technologies |
 |---|---|
@@ -53,7 +53,7 @@ Capteurs AirGradient ──► Backend Node.js/Express ◄──► Service IA F
 | Emails | API Brevo |
 | Déploiement | Render (avec optimisations mémoire pour le free tier : traitement séquentiel, agrégations MongoDB, limite heap) |
 
-## 🚀 Installation
+##  Installation
 
 ### Prérequis
 - Node.js ≥ 18, Python ≥ 3.10, MongoDB (local ou Atlas)
@@ -90,13 +90,13 @@ python app_optimized_7days.py
 | `/admin` | Administration |
 | `/health` | État du service |
 
-## 🧠 Ce que ce projet m'a appris
+##  Ce que ce projet m'a appris
 
 - Construire et itérer un **pipeline de ML complet** (features engineering, validation temporelle, lutte contre le surapprentissage) — le service IA en est à sa **v3**
 - Faire communiquer des **microservices** (Node.js ↔ Flask) de façon résiliente (timeouts, keep-alive)
 - Déployer et **optimiser sous contraintes réelles** : fuites mémoire corrigées, agrégations MongoDB à la place de requêtes massives, adaptation au free tier de Render
 
-## 👩🏽‍💻 Auteur
+##  Auteur
 
 **Mame Khady Laye DIAW** — Développeuse Full-Stack, Dakar
 [GitHub](https://github.com/maakhady) · [LinkedIn](https://linkedin.com/in/mamekhady)
