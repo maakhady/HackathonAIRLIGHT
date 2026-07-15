@@ -2,6 +2,8 @@
 
 **Plateforme de surveillance et de prédiction de la qualité de l'air au Sénégal**
 
+🏆 **Projet lauréat du hackathon KaiKai**
+
 AirLight collecte en continu les données de capteurs de qualité de l'air, les enrichit avec des données météo, et utilise le machine learning pour **prédire la qualité de l'air jusqu'à 7 jours (168 heures)**. La plateforme alerte les utilisateurs en cas de dégradation et envoie des rapports automatiques par email, avec pour objectif de sensibiliser les populations aux enjeux de pollution atmosphérique.
 
 ---
